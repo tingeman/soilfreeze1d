@@ -39,8 +39,8 @@ if __name__ == '__main__':
 
     # Define the model layers and properties
     Layers = soilfreeze1d.LayeredModel(type='stefan')
-    Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
-    
+    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
+
     # Thickness:    Thickness of the layer [m]
     # n:            Porosity [-]   Soil is considered fully saturated
     # C_th:         Heat capacity, thawed state [J/(m^3*C)]
@@ -54,12 +54,18 @@ if __name__ == '__main__':
     
     # Define model domain properties
     Nx = 100        # The number of nodes in the model domain is Nx+1
-    dt = 0.5*days   # The calculation time step
-    T = 365*days    # The total calculation period
+    dt = 1*days   # The calculation time step
+    T = 100*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
 
+    # Example of a function that will give a constant
+    # upper boundary temperature
+    
+    #def surf_T(t):
+    #    return -2.
+    
     # Define the geothermal gradient (lower boundary)    
     grad=0.08333     # [K/m]
     
@@ -71,7 +77,7 @@ if __name__ == '__main__':
     
     Tmin = -11      # The minimum value on the temperature axis
     Tmax = +9      # The maximum value on the temperature axis
-    z_max = 10      # Maximum plot depth on the z-axis    
+    z_max = 30      # Maximum plot depth on the z-axis    
     
     # Set up result output 
     outfile = 'model1_results.txt' # Name of the result file
@@ -103,3 +109,4 @@ if __name__ == '__main__':
     plot_solution.update(u, x, t[-1])
     
     print 'CPU time:', cpu
+    
