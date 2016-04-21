@@ -44,6 +44,8 @@ import os.path
 import numpy as np
 from numpy import linspace, zeros, pi
 from matplotlib.pyplot import plot, savefig, draw, show, figure
+import matplotlib
+matplotlib.use('GTKAgg')
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 import scipy.sparse
@@ -431,6 +433,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     
     u   = zeros(Nx+1)   # solution array at t[tid+1]
     u_1 = zeros(Nx+1)   # solution at t[tid]
+    u_bak = zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
 
     dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
     dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
@@ -444,6 +447,8 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     A_m      = zeros(Nx)
     B_m      = zeros(Nx+1)
     C_m      = zeros(Nx)
+    unfrw_u  = zeros(Nx+1)
+    unfrw_u1 = zeros(Nx+1)
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw':
@@ -494,6 +499,12 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
        
     # Time loop
     for tid in range(0, Nt):
+
+        # u_1 holds the temperatures at time step n
+        # u   will eventually hold calculated temperatures at step n+1
+        
+        u_bak = u_1 
+        
         #pdb.set_trace()
         print '{0:d}'.format(tid) ,
         
@@ -508,13 +519,20 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
         C_eff = f_C_eff(C_fr, C_th, phi)
         unfrw_u1 = n*phi
         
-        if tid == 600:
-            pdb.set_trace()
+        #if tid == 600:
+        #    pdb.set_trace()
         
         
         F = dt/(2*dx**2)        
+
+
+        if Layers.parameter_set == 'unfrw':
+            maxiter = 10
+        else:
+            maxiter = 1
+
         
-        for iter in xrange(10):
+        for iter in xrange(maxiter):
             
             if Layers.parameter_set == 'unfrw':
                 # We calculate finite difference of unfrozen water based on the vertical
@@ -555,9 +573,28 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
                     
                     C_add = C_add_1
             
+                # NEW APPROACH TRYING AN ITERATION SCHEME
+                if iter == 0:
+                    # This is first iteration, approximate the latent heat 
+                    # component by the analytical derivative
+                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add = C_add_1
+                    #print "I:{0:.2f}".format(C_add[10]),                    
+                    
+                else:
+                    # A previous iteration exist, so an estimate of the
+                    # next time step exists. Use that to calculate a finite
+                    # difference.
+                    
+                    dT = (u-u_1)
+                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                    
+                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
+                    #print "*:{0:.2f}".format(C_add[10]),                    
+            
                 # Apparent heat capacity is the heat capacity + the latent heat effect
-        
                 C_app = C_eff + C_add
+                #print "C:{0:.2f}".format(C_app[10]),
                 
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
@@ -623,23 +660,37 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
                 
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
-            #if Layers.parameter_set == 'unfrw':
-            #    phi_u = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
-            #elif Layers.parameter_set == 'stefan':
-            #    phi_u = f_phi_stefan(u_1, Tf, interval)
-            #else:
-            #    phi_u = 1.  # for standard solution there is no phase change
+            if Layers.parameter_set == 'unfrw':
+                phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+            elif Layers.parameter_set == 'stefan':
+                phi_u = f_phi_stefan(u, Tf, interval)
+            else:
+                phi_u = 1.  # for standard solution there is no phase change
             
-            #unfrw_u = n*phi_u
+            unfrw_u = n*phi_u
             
             #if np.any(np.abs(unfrw_u-unfrw_u1)>0.05):
             #    dt = dt/2.
             #else:
             #    break
+            
+            if Layers.parameter_set == 'unfrw':
+                #print "{0:.5f}".format(u[10]),
+                change = (u-u_bak)/u_bak*100
+                print "{0:.8f}".format(np.max(change)),
                 
-            break
+                #if np.any(change>=1.0):
+                #    pdb.set_trace
+    
+                if np.max(change) < 0.001:
+                    # break iteration loop
+                    # since no improvement
+                    break                
+            
+            u_bak = u.copy()
+            
              
-        print "Time step completed!".format(iter)    
+        print "Time step completed: {0:d} iterations".format(iter)
         #print "{0:d} iterations. Done!".format(iter)
         
         #dt = dt*2.
@@ -735,6 +786,7 @@ class Visualizer_T(object):
                  Tmin=None, Tmax=None):
         self.fig = fig
         self.ax1 = ax1
+        self.title = None
         self.z_max = z_max
         self.Tmin = Tmin
         self.Tmax = Tmax
@@ -746,9 +798,19 @@ class Visualizer_T(object):
             self.ax1 = plt.subplot(1, 1, 1)
             self.ax1.hold(False)
             
+        self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
+
+        self.ax1.set_xlim([self.Tmin,self.Tmax])
+        self.ax1.invert_yaxis()
+        self.ax1.axvline(x=0, ls='--', color='k')
+        
+        plt.draw()
+        plt.show()
+
+        self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
+            
         self.ax1.plot(u, x, 'r-', marker='.', ms=5)
         self.ax1.hold(True)
-        self.ax1.axvline(x=0, ls='--', color='k')
         self.ax1.set_title('t=%f' % (t/(3600*24.)))
         
         self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
@@ -756,7 +818,7 @@ class Visualizer_T(object):
         self.ax1.invert_yaxis()
         
         if name:
-            plt.figure(self.fig).suptitle(name)        
+            self.title = plt.figure(self.fig).suptitle(name)        
             
         plt.draw()
         plt.show()
@@ -764,15 +826,25 @@ class Visualizer_T(object):
 
     def __call__(self, u, x, t):
         self.ax1.lines[0].set_xdata(u)
-        self.ax1.set_title('t=%f' % (t/(3600*24.)))
+        self.ax1.title.set_text('t=%f' % (t/(3600*24.)))
+
+        # restore background
+        plt.figure(self.fig).canvas.restore_region(self.background)
+
+        # redraw just the points
+        self.ax1.draw_artist(self.ax1.lines[0])
+        self.ax1.draw_artist(self.ax1.title)
+
+        # fill in the axes rectangle
+        plt.figure(self.fig).canvas.blit(self.ax1.bbox)
         
-        plt.draw()
         
     def update(self, u, x, t):
-        self.ax1.lines[0].set_xdata(u)
-        self.ax1.set_title('t=%f' % (t/(3600*24.)))
+         self(u, x, t)       
+#        self.ax1.lines[0].set_xdata(u)
+#        self.ax1.set_title('t=%f' % (t/(3600*24.)))
         
-        plt.draw()
+#        plt.draw()
 
         
     
@@ -1007,7 +1079,73 @@ def plot_unfrw(params, T1=-10, T2=2):
     
 
 
+def plot_trumpet(fname, start=0, end=-1, **kwargs):
+    figBG   = 'w'        # the figure background color
+    axesBG  = '#ffffff'  # the axies background color
+    textsize = 8        # size for axes text
+    
+    fh = None
 
+    if kwargs.has_key('axes'):
+        ax = kwargs.pop('axes')
+    elif kwargs.has_key('Axes'):
+        ax = kwargs.pop('Axes')
+    elif kwargs.has_key('ax'):
+        ax = kwargs.pop('ax')
+    else:
+        fh = plt.figure(facecolor=figBG)
+        ax = plt.axes(axisbg=axesBG)
+
+    if fh is None:
+        fh = ax.get_figure()
+
+    hstate = ax.ishold()
+
+    data = np.loadtxt(fname, skiprows=1, delimiter=';')
+    with open(fname, 'r') as f:
+        line = f.readline()
+    
+    time = data[:,0]/(1*days)
+    surf_T = data[:,1]
+    data = data[start:end,2:]
+    
+    depths = np.array(line.split(';')[2:], dtype=float)    
+
+    Tmax = data.max(axis=0)
+    Tmin = data.min(axis=0)    
+
+    ax.axvline(x=0,linestyle='--', color='k')    
+    
+    ax.plot(Tmax,depths, '-r')
+    ax.plot(Tmin,depths, '-b')
+    
+    ax.invert_yaxis()
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position('top') 
+    ax.tick_params(axis='both', direction='out')
+    ax.hold(hstate)    
+
+    ax.set_ylabel('Depth [m]')
+    ax.set_xlabel('Temperature [C]')
+
+    textstr = '{0}\nstart day = {1:.2f}\nend day = {2:.2f}\nnumber of days = {3:.2f}'.format(fname,
+                                                                                        time[start],
+                                                                                        time[end],
+                                                                                        (time[end]-time[start]))
+                                                                                        
+    # these are matplotlib.patch.Patch properties
+    props = dict(boxstyle='round', facecolor='w', alpha=0.5)
+    
+    # place a text box in upper left in axes coords
+    ax.text(0.05, 0.25, textstr, transform=ax.transAxes, fontsize=14,
+        verticalalignment='top', bbox=props)
+
+
+    pylab.draw()
+
+    return ax
+    
+    
 
 def plot_surf(fname, annotations=True, figsize=(15,6),
                 cmap=plt.cm.bwr, node_depths=True, cax=None,
