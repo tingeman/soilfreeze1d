@@ -493,7 +493,7 @@ class SolverTime(object):
         print "allow incr:  {0}".format(self.step_up_allowed)    
 
 
-def solver_theta(Layers, Nx, dt, t_end, t0=0, theta=1,
+def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
@@ -584,7 +584,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, theta=1,
     datafile.add(t0, ub(t0), u)
        
     
-    solver_time = SolverTime(t0, dt, optimistic=True)
+    solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
     iter1 = 0    
     
     # Time loop    
@@ -1064,9 +1064,9 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     
     
 
-def plot_surf(fname, annotations=True, figsize=(15,6),
-                cmap=plt.cm.bwr, node_depths=True, cax=None,
-                cont_levels=[0], **kwargs):
+def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True, 
+              figsize=(15,6), cmap=plt.cm.bwr, node_depths=True, cax=None,
+              cont_levels=[0], **kwargs):
 
     figBG   = 'w'        # the figure background color
     axesBG  = '#ffffff'  # the axies background color
@@ -1090,15 +1090,16 @@ def plot_surf(fname, annotations=True, figsize=(15,6),
 
     hstate = ax.ishold()
 
-    data = np.loadtxt(fname, skiprows=1, delimiter=';')
-    with open(fname, 'r') as f:
-        line = f.readline()
+    if fname is not None:
+        data = np.loadtxt(fname, skiprows=1, delimiter=';')
+        with open(fname, 'r') as f:
+            line = f.readline()
     
-    time = data[:,0]/(1*days)
-    #surf_T = data[:,1]
-    data = data[:,2:]
+        time = data[:,0]/(1*days)
+        #surf_T = data[:,1]
+        data = data[:,2:]
     
-    depths = np.array(line.split(';')[2:], dtype=float)    
+        depths = np.array(line.split(';')[2:], dtype=float)    
     
     # Find the maximum and minimum temperatures, and round up/down
     mxn = np.max(np.abs([np.floor(data.min()),
@@ -1135,7 +1136,8 @@ def plot_surf(fname, annotations=True, figsize=(15,6),
     ax.set_ylabel('Depth [m]')
     ax.set_xlabel('Time [days]')
 
-    pylab.draw()
+    plt.draw()
+    plt.show()
 
     return ax
 
