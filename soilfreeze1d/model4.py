@@ -14,7 +14,7 @@ import soilfreeze1d   # import the module containing the Finite Difference
 
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
-
+hours = 1*3600
 
 # Define any supporting functions
 
@@ -39,8 +39,8 @@ if __name__ == '__main__':
 
     # Define the model layers and properties
     Layers = soilfreeze1d.LayeredModel(type='unfrw')
-    Layers.add(Thickness=3,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
-    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     
     
     # Thickness:    Thickness of the layer [m]
@@ -55,9 +55,9 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    Nx = 100        # The number of nodes in the model domain is Nx+1
-    dt = 0.5*days   # The calculation time step
-    T = 365*days    # The total calculation period
+    Nx = 400        # The number of nodes in the model domain is Nx+1
+    dt = 24*hours   # The calculation time step
+    T = 2*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     
     # Set up plotting
     fignum  = 99    # Plot results in figure number 99    
-    animate = True  # Plot result of each model time step    
+    animate = False  # Plot result of each model time step    
                     # If set to False, only first and last
                     # time step will be plotted.
     
@@ -84,7 +84,7 @@ if __name__ == '__main__':
     dx = x[1] - x[0]
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T_dT(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
         
     # Switch animation on or off
@@ -102,6 +102,6 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     print 'CPU time:', cpu
