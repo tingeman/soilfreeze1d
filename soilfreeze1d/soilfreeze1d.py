@@ -41,6 +41,7 @@ store solutions, etc.
 import pdb
 import time
 import os.path
+import fractions
 import numpy as np
 import matplotlib
 matplotlib.use('GTKAgg')
@@ -394,9 +395,105 @@ class LayeredModel(object):
     # DONE: Add method to retrieve all parameters for a specific layers    
     # DONE: Add method to calculate the grid point values of a specified parameter, given an array of gridpoint depths.    
     # Add method to visualize the layered model somehow (including the unfrozen water content curve...)
-    
 
-def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
+
+class SolverTime(object):
+    """Class that handles adaptive time stepping for finite difference solver.
+    """
+    
+    def __init__(self, t0, dt, dt_min=360, optimistic=False):
+        self.time = fractions.Fraction(t0).limit_denominator()
+        self.previous_time = None
+        self.dt_max = fractions.Fraction(dt).limit_denominator()
+        self.dt_min = dt_min
+        self.dt_fraction = fractions.Fraction(1,1)      
+        self.dt = self.dt_max*self.dt_fraction
+        self.step_up_allowed = False
+        self.optimistic = optimistic
+        self._o_counter = 0        
+        
+    def _is_power2(self, num):
+        """Tests if num is a power of two."""
+        return ((num & (num - 1)) == 0) and num > 0
+        
+    def step(self):
+        """Evolve time with the current time step size. Time step is increased
+        if flag is set and time step fraction allows (we only step up when we 
+        we are sure the new time step is in sync with the nominal (maximum) 
+        time step.)
+        
+        """
+        if self.optimistic and self._o_counter > 1:
+            # If we are allowed to be optimistic, set step-up flag if the
+            # last two steps did not result in a step size decrease.
+            # = if today is no worse than yesterday, assume tomorrow will 
+            #   be even better.
+            self.step_up_allowed = True
+        
+        if self.step_up_allowed and self.dt_fraction < 1:
+            # We are allowed to increase the time step
+            if self.time%(self.dt*2) == 0:
+                # yes new time step will be in sync, so we can increase
+                self.dt_fraction *= 2
+                self.dt = self.dt_max*self.dt_fraction
+                self.step_up_allowed = False  # reset flag
+            else:
+                # No, we are not at a power-of-two fraction
+                # do nothing and step up next time we get the chance
+                pass
+        else:
+            # No we are not allowed to increase time step, do nothing
+            pass
+        
+        self.previous_time = self.time  # store present time step
+        self.time += self.dt  # take new step
+        self._o_counter += 1
+        self.show()
+        
+    def step_back(self):
+        """Take backward step, restoring the previous time."""
+        if self.previous_time is not None:
+            self.time = self.previous_time
+            self.previous_time = None
+        else:
+            raise ValueError('Cannot step backwards.')
+        self.show()
+
+    def increase_step(self, force=False):
+        """Increase the current time step, dt, by a factor of 2."""
+        if force and self.dt_fraction<1:
+            self.dt_fraction *= 2
+            self.dt = self.dt_max*self.dt_fraction
+        else:
+            self.step_up_allowed = True
+        self.show()
+        
+    def decrease_step(self):
+        """Reduce the current time step, dt, by a factor of 2."""
+        if self.dt_fraction/2*self.dt_max >= self.dt_min:
+            self.dt_fraction /= 2
+            self.dt = self.dt_max*self.dt_fraction
+            success = True
+        else:
+            success = False
+        self.step_up_allowed = False
+        self._o_counter = 0
+        self.show()
+        return success
+        
+    def __call__(self):
+        """Return the current time."""
+        return float(self.time)
+
+    def show(self):
+        return
+        print "time:        {0}".format(self.time)
+        print "time-1:      {0}".format(self.previous_time)
+        print "dt_fraction: {0}".format(self.dt_fraction)        
+        print "allow incr:  {0}".format(self.step_up_allowed)    
+
+
+def solver_theta(Layers, Nx, dt, t_end, t0=0, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
@@ -418,8 +515,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
     dx = x[1] - x[0]
     
-    Nt = int(round((T-t0)/float(dt)))
-    t = np.linspace(t0, T, Nt+1)   # mesh points in time
+    #Nt = int(round((t_end-t0)/float(dt)))
     
     u   = np.zeros(Nx+1)   # solution array at t[tid+1]
     u_1 = np.zeros(Nx+1)   # solution at t[tid]
@@ -481,22 +577,28 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     u = u_1 + 0.001    # initialize u for finite differences
     
     if user_action is not None:
-        user_action(u_1, x, t[0])
+        user_action(u_1, x, t0)
 
     datafile = FileStorage(outfile, depths=x, 
                            interval=outint, buffer_size=30)        
-    datafile.add(t[0], ub(t[0]), u)
+    datafile.add(t0, ub(t0), u)
        
-    # Time loop
-    for tid in range(0, Nt):
-
+    
+    solver_time = SolverTime(t0, dt, optimistic=True)
+    iter1 = 0    
+    
+    # Time loop    
+    while solver_time() < t_end:
+        convergence = False        
+        iter1 += 1        
+        
         # u_1 holds the temperatures at time step n
         # u   will eventually hold calculated temperatures at step n+1
         
         u_bak = u_1 
         
         #pdb.set_trace()
-        print '{0:d}'.format(tid) ,
+        print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time(), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'unfrw':
             phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
@@ -513,21 +615,20 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
         #    pdb.set_trace()
         
         
-        F = dt/(2*dx**2)        
+        F = solver_time.dt/(2*dx**2)        
 
 
         if Layers.parameter_set == 'unfrw':
-            maxiter = 10
+            maxiter2 = 5
         else:
-            maxiter = 1
+            maxiter2 = 1
 
         
-        for iter in xrange(maxiter):
+        for iter2 in xrange(maxiter2):
             
             if Layers.parameter_set == 'unfrw':
-            
                 # NEW APPROACH TRYING AN ITERATION SCHEME
-                if iter == 0:
+                if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
@@ -597,11 +698,11 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(t[tid])    # upper boundary conditions
+            b[0] = ub(solver_time())    # upper boundary conditions
             
             # Add lower boundary condition
             if lb_type == 1:
-                b[-1] = lb(t[tid])  
+                b[-1] = lb(solver_time())  
             elif lb_type == 2:
                 #b[-1] = u_1[Nx] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) - 2*C_N*dx*grad
                 b[-1] = dx*grad
@@ -622,27 +723,53 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
                 change = (u-u_bak)/u_bak
                 print "{0:.8f}%".format(np.max(change*100)),
     
-                if np.max(change) < 0.00001:
-                    # break iteration loop
-                    # since no improvement
-                    break                
+                if np.max(change) < 0.0001:
+                    # break iteration loop since no significant change in 
+                    # temperature is observed.
+                    convergence = True
+                    u_bak = u.copy()
+                    break
+            else:
+                convergence = True
+                u_bak = u.copy()
             
             u_bak = u.copy()
             
-             
-        print "Time step completed: {0:d} iterations".format(iter)
 
-        u[0] = ub(t[tid+1])            
-        if user_action is not None:
-            user_action(u, x, t[tid+1])
+        if not convergence:
+            print "No convergence.",
+            success = solver_time.decrease_step()
+            # We decrease time step, because we did not see
+            # sufficient improvement within maxiter2 iterations.
+            # Since solver_time is optimistic, it will automatically
+            # increase time step gradually.
+            
+            # If success is False, we have reached the minimum time step.            
+            
+            # do not step forward in time, we need to recalculate for time n+dt
+            
+            if success:
+                print "dt reduced."
+            else:
+                print "Reduction impossible.",
 
-        datafile.add(t[tid+1], ub(t[tid+1]), u)
-        
-        u_1, u = u, u_1
+        if convergence or not success:
+            # We had convergence, prepare for next time step.             
+            print "Done! {0:d} iters".format(iter2)
+            
+            solver_time.step()        
+            
+            u[0] = ub(solver_time())            
+            if user_action is not None:
+                user_action(u, x, solver_time())
+    
+            datafile.add(solver_time(), ub(solver_time()), u)
+            
+            u_1, u = u, u_1
     
     datafile.flush()
     tstop = time.clock()
-    return u, x, t, tstop-tstart
+    return u, x, solver_time(), tstop-tstart
     
 
 class Visualizer_T_dT(object):
