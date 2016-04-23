@@ -224,6 +224,14 @@ class FileStorage(object):
         else:
             # t is not at a regular storage interval, so do nothing
             pass
+        
+    def add_comment(self, text):
+        """Adds a comment line to the file."""
+        self.flush()
+
+        with open(self.filename, 'a') as f:  # open the file
+            f.write('# {0}\n'.format(text))
+        
     
     def flush(self):
         """Writes buffer to disk file."""
@@ -498,7 +506,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
                  outfile='model_result.txt',
-                 outint=1*days):
+                 outint=1*days,
+                 silent=False):
     """Full solver for the model problem using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -538,7 +547,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw':
-        print "Using unfrozen water parameters"
+        if not silent: print "Using unfrozen water parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -551,7 +560,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'stefan':
-        print "Using stefan solution parameters"
+        if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -563,7 +572,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         interval = Layers.pick_values(x, 'interval')
         Tf = Layers.pick_values(x, 'Tf')
     else:
-        print "Using standard parameters"
+        if not silent: print "Using standard parameters"
         k_th = Layers.pick_values(x, 'k')
         C_th = Layers.pick_values(x, 'C')
         k_fr = np.nan
@@ -597,8 +606,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         
         u_bak = u_1 
         
-        #pdb.set_trace()
-        print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time(), solver_time.dt_fraction) ,
+        if not silent:
+            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'unfrw':
             phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
@@ -690,10 +699,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 raise ValueError('Unknown lower boundary type')
 
-            U = scipy.sparse.diags(
-                diagonals=[diagonal, lower, upper],
-                offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
-                format='csr')
+            U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
+                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
+                                   format='csr')
             #print A.todense()
                 
             # Compute known vector
@@ -719,16 +727,17 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             unfrw_u = n*phi_u
             
             if Layers.parameter_set == 'unfrw':
-                #print "{0:.5f}".format(u[10]),
-                change = (u-u_bak)/u_bak
-                print "{0:.8f}%".format(np.max(change*100)),
-    
-                if np.max(change) < 0.0001:
-                    # break iteration loop since no significant change in 
-                    # temperature is observed.
-                    convergence = True
-                    u_bak = u.copy()
-                    break
+                if iter2 != 0:       # Always do at least 1 iteration
+                    change = (u-u_bak)/u_bak
+                    if not silent:
+                        print "{0:.8f}%".format(np.max(change)*100),
+        
+                    if np.max(change) < 0.00001:
+                        # break iteration loop since no significant change in 
+                        # temperature is observed.
+                        convergence = True
+                        u_bak = u.copy()
+                        break
             else:
                 convergence = True
                 u_bak = u.copy()
@@ -737,7 +746,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
 
         if not convergence:
-            print "No convergence.",
+            if not silent:
+                print "No convergence.",
             success = solver_time.decrease_step()
             # We decrease time step, because we did not see
             # sufficient improvement within maxiter2 iterations.
@@ -749,13 +759,16 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             # do not step forward in time, we need to recalculate for time n+dt
             
             if success:
-                print "dt reduced."
+                if not silent:
+                    print "dt reduced."
             else:
-                print "Reduction impossible.",
+                if not silent: 
+                    print "Reduction impossible.",
 
         if convergence or not success:
             # We had convergence, prepare for next time step.             
-            print "Done! {0:d} iters".format(iter2)
+            if not silent: 
+                print "Done! {0:d} iters".format(iter2)
             
             solver_time.step()        
             
@@ -768,7 +781,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             u_1, u = u, u_1
     
     datafile.flush()
-    tstop = time.clock()
+    tstop = time.clock()    
+    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
     return u, x, solver_time(), tstop-tstart
     
 
@@ -1066,7 +1080,7 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
 
 def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True, 
               figsize=(15,6), cmap=plt.cm.bwr, node_depths=True, cax=None,
-              cont_levels=[0], **kwargs):
+              cont_levels=[0], title='', **kwargs):
 
     figBG   = 'w'        # the figure background color
     axesBG  = '#ffffff'  # the axies background color
@@ -1105,6 +1119,9 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     mxn = np.max(np.abs([np.floor(data.min()),
            np.ceil(data.max())]))
     levels = np.arange(-mxn,mxn+1)
+    
+    if len(levels) < 2:
+        levels = np.array([-0.5,0,0.5])
 
     xx, yy  = np.meshgrid(time, depths)
 
@@ -1131,7 +1148,10 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     #fh.autofmt_xdate()
 
     if annotations:
-        fh.suptitle(fname)
+        if title == '':
+            fh.suptitle(fname)
+        else:
+            fh.suptitle(title)
 
     ax.set_ylabel('Depth [m]')
     ax.set_xlabel('Time [days]')
