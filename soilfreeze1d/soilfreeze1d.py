@@ -647,7 +647,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
-                    # difference.
+                    # difference for the unfrozen water content.
                     
                     #dT = (u-u_1)
                     dudT = (unfrw_u-unfrw_u1)/(u-u_1)
@@ -673,9 +673,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
             B_m[1:-1] = F*(k_eff[0:-2]+2*k_eff[1:-1]+k_eff[2:])/C_app[1:-1]
             C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
-            #A_N = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
-            #B_N = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
-            #C_N = F*(2*k_eff[Nx])/C_app[Nx]    
+            A_N = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
+            B_N = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
+            C_N = F*(2*k_eff[Nx])/C_app[Nx]    
 
             
             # Compute sparse matrix (scipy format)
@@ -688,14 +688,17 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             upper[0] = 0
             
             if lb_type == 1:
+                # Dirichlet solution for lower boundary
                 diagonal[Nx] = 1
                 lower[-1] = 0
             elif lb_type == 2:
-                #diagonal[Nx] = 1 + theta*B_N
-                #lower[-1] = -theta*(A_N+C_N)  
+                # First order Neumann solution for lower boundary
                 diagonal[Nx] = 1
                 lower[-1] = -1
-
+            elif lb_type == 3:
+                # Second order Neumann solution for lower boundary
+                diagonal[Nx] = 1 + theta*B_N
+                lower[-1] = -theta*(A_N+C_N)  
             else:
                 raise ValueError('Unknown lower boundary type')
 
@@ -710,11 +713,16 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             # Add lower boundary condition
             if lb_type == 1:
+                # Dirichlet solution for lower boundary
                 b[-1] = lb(solver_time())  
             elif lb_type == 2:
-                #b[-1] = u_1[Nx] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) - 2*C_N*dx*grad
+                # First order Neumann solution for lower boundary
                 b[-1] = dx*grad
-                
+            elif lb_type == 3:
+                # First order Neumann solution for lower boundary
+                b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) - 2*C_N*dx*grad
+            
+            
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
             if Layers.parameter_set == 'unfrw':
