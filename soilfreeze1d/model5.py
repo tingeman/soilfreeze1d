@@ -6,7 +6,11 @@ Created on Wed Apr 20 01:06:32 2016
 """
 
 # import standard pythom modules
+import sys
+import time
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
@@ -88,135 +92,170 @@ if __name__ == '__main__':
 
     cpu_list = []
     
+    
+    runs = [dict(scheme='BE', dt=360,      dt_min=1,   theta=1,   outfile='model5_6m-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt=1800,     dt_min=1,   theta=1,   outfile='model5_30m-1s_BE.txt', cpu=None),
+            dict(scheme='BE', dt= 1*hours, dt_min=1,   theta=1,   outfile='model5_1h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 2*hours, dt_min=1,   theta=1,   outfile='model5_2h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 3*hours, dt_min=1,   theta=1,   outfile='model5_3h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 4*hours, dt_min=1,   theta=1,   outfile='model5_4h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 6*hours, dt_min=1,   theta=1,   outfile='model5_6h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 8*hours, dt_min=1,   theta=1,   outfile='model5_8h-1s_BE.txt',  cpu=None),
+            dict(scheme='BE', dt=12*hours, dt_min=1,   theta=1,   outfile='model5_12h-1s_BE.txt', cpu=None),
+            dict(scheme='BE', dt=16*hours, dt_min=1,   theta=1,   outfile='model5_16h-1s_BE.txt', cpu=None),
+            dict(scheme='BE', dt=20*hours, dt_min=1,   theta=1,   outfile='model5_20h-1s_BE.txt', cpu=None),
+            dict(scheme='BE', dt=24*hours, dt_min=1,   theta=1,   outfile='model5_24h-1s_BE.txt', cpu=None),
+            dict(scheme='CN', dt=360,      dt_min=1,   theta=0.5, outfile='model5_6m-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt=1800,     dt_min=1,   theta=0.5, outfile='model5_30m-1s_CN.txt', cpu=None),
+            dict(scheme='CN', dt= 1*hours, dt_min=1,   theta=0.5, outfile='model5_1h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 2*hours, dt_min=1,   theta=0.5, outfile='model5_2h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 3*hours, dt_min=1,   theta=0.5, outfile='model5_3h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 4*hours, dt_min=1,   theta=0.5, outfile='model5_4h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 6*hours, dt_min=1,   theta=0.5, outfile='model5_6h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 8*hours, dt_min=1,   theta=0.5, outfile='model5_8h-1s_CN.txt',  cpu=None),
+            dict(scheme='CN', dt=12*hours, dt_min=1,   theta=0.5, outfile='model5_12h-1s_CN.txt', cpu=None),
+            dict(scheme='CN', dt=16*hours, dt_min=1,   theta=0.5, outfile='model5_16h-1s_CN.txt', cpu=None),
+            dict(scheme='CN', dt=20*hours, dt_min=1,   theta=0.5, outfile='model5_20h-1s_CN.txt', cpu=None),
+            dict(scheme='CN', dt=24*hours, dt_min=1,   theta=0.5, outfile='model5_24h-1s_CN.txt', cpu=None),
+            dict(scheme='BE', dt= 1*hours, dt_min=360, theta=1,   outfile='model5_1h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 2*hours, dt_min=360, theta=1,   outfile='model5_2h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 3*hours, dt_min=360, theta=1,   outfile='model5_3h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 4*hours, dt_min=360, theta=1,   outfile='model5_4h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 6*hours, dt_min=360, theta=1,   outfile='model5_6h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt= 8*hours, dt_min=360, theta=1,   outfile='model5_8h-6m_BE.txt',  cpu=None),
+            dict(scheme='BE', dt=12*hours, dt_min=360, theta=1,   outfile='model5_12h-6m_BE.txt', cpu=None),
+            dict(scheme='BE', dt=16*hours, dt_min=360, theta=1,   outfile='model5_16h-6m_BE.txt', cpu=None),
+            dict(scheme='BE', dt=20*hours, dt_min=360, theta=1,   outfile='model5_20h-6m_BE.txt', cpu=None),
+            dict(scheme='BE', dt=24*hours, dt_min=360, theta=1,   outfile='model5_24h-6m_BE.txt', cpu=None),
+            dict(scheme='CN', dt= 1*hours, dt_min=360, theta=0.5, outfile='model5_1h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 2*hours, dt_min=360, theta=0.5, outfile='model5_2h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 3*hours, dt_min=360, theta=0.5, outfile='model5_3h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 4*hours, dt_min=360, theta=0.5, outfile='model5_4h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 6*hours, dt_min=360, theta=0.5, outfile='model5_6h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt= 8*hours, dt_min=360, theta=0.5, outfile='model5_8h-6m_CN.txt',  cpu=None),
+            dict(scheme='CN', dt=12*hours, dt_min=360, theta=0.5, outfile='model5_12h-6m_CN.txt', cpu=None),
+            dict(scheme='CN', dt=16*hours, dt_min=360, theta=0.5, outfile='model5_16h-6m_CN.txt', cpu=None),
+            dict(scheme='CN', dt=20*hours, dt_min=360, theta=0.5, outfile='model5_20h-6m_CN.txt', cpu=None),
+            dict(scheme='CN', dt=24*hours, dt_min=360, theta=0.5, outfile='model5_24h-6m_CN.txt', cpu=None)]
+            
     if False:
-        # Set up result output 
-        dt = 1*hours   # The calculation time step
-        dt_min = 1     # minimum calculation time step is 1 sec.
-        outfile = 'model5_1h.txt' # Name of the result file
+        for rid, run in enumerate(runs):
+            # Call Finite Difference engine    
+            print "Running {0}   ".format(run['outfile']),
+            sys.stdout.flush()
+            u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, run['dt'], T, dt_min=run['dt_min'], 
+                                                     theta=run['theta'],
+                                                     Tinit=initialTemperature, 
+                                                     ub=surf_T, lb_type=2, grad=grad,
+                                                     user_action=user_action,
+                                                     outfile=run['outfile'],
+                                                     outint=outint,
+                                                     silent=True)
+            
+            runs[rid][cpu] = cpu
+            cpu_list.append([run['outfile'],cpu])
+            print cpu
         
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, dt_min=dt_min, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-        cpu_list.append(cpu)
 
+    if True:        
+        data = {}
+        for rid,run in enumerate(runs):
+            dat = pd.read_csv(run['outfile'], delimiter = ";")
+            runs[rid]['cpu'] = float(dat.icol(0).irow(-1).split(':')[-1])
+            times = np.array(list(dat.ix[1:dat.index.max()-1,0].values), dtype='f8')
+            data[run['outfile']] = dat.ix[1:dat.index.max()-1,2:]
+            # skip first and last rows, as well as index columns
+            #data[run['outfile']] = np.loadtxt(run['outfile'],  skiprows=1, delimiter=';', comment='#')
+            
+        params = pd.DataFrame(runs)
+        params['dT_max'] = 0.
+        params['dT_min'] = 0.
+        params['dT_avg'] = 0.
+        
+        ref = 'model5_1h-1s_CN.txt'
+        refdat = data[ref]
+        
+        for did, dat_key in enumerate(data.keys()):
+            if dat_key != ref:
+                params.ix[params['outfile']==dat_key, 'dT_max'] = (refdat-data[dat_key]).max().max()
+                params.ix[params['outfile']==dat_key, 'dT_min'] = (refdat-data[dat_key]).min().min()
+                params.ix[params['outfile']==dat_key, 'dT_avg'] = (refdat-data[dat_key]).mean().mean()
+                
+                #soilfreeze1d.plot_surf(data=refdat-data[dat_key], time=times, depths=x, cont_levels=[-0.05, 0.05])
+        
+        fig1 = plt.figure(); ax1 = plt.axes()
+        fig2 = plt.figure(); ax2 = plt.axes()
+        fig3 = plt.figure(); ax3 = plt.axes()
+        fig4 = plt.figure(); ax4 = plt.axes()
+        
+        m = ['s','d']
+        c = ['b','g']
+        
+        for sid,scheme in enumerate(['BE', 'CN']):
+            for did,dt_min in enumerate([1,360]):
+                xdat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dt']/(1*hours)
+                ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_max']
+                ax1.plot(xdat, ydat, marker=m[sid], color=c[did])
+                
+                ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_min']
+                ax2.plot(xdat, ydat, marker=m[sid], color=c[did])
+
+                ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_avg']
+                ax3.plot(xdat, ydat, marker=m[sid], color=c[did])
+
+                ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['cpu']
+                ax4.loglog(xdat, ydat, marker=m[sid], color=c[did])                
+                
+        plt.show()
+        1/0
+
+                
+#                soilfreeze1d.plot_surf(data=dat1[1][:,2:]-dat2[1][:,2:],  
+#                                       time=dat1[1][:,0], depths=x, 
+#                                       cont_levels=[-0.05, 0.05],
+#                                       title="{0} - {1}".format(dat1[0], dat2[0]))
+        
     if False:
-        # Set up result output 
-        dt = 3*hours   # The calculation time step
-        outfile = 'model5_3h.txt' # Name of the result file
-        
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-        cpu_list.append(cpu)
+        data_1h  = np.loadtxt('model5_1h.txt',  skiprows=1, delimiter=';')
+        data_3h  = np.loadtxt('model5_3h.txt',  skiprows=1, delimiter=';')
+        data_6h  = np.loadtxt('model5_6h.txt',  skiprows=1, delimiter=';')
+        data_12h = np.loadtxt('model5_12h.txt', skiprows=1, delimiter=';')
+        data_24h = np.loadtxt('model5_24h.txt', skiprows=1, delimiter=';')
+        data_24h2 = np.loadtxt('model5_24h2.txt', skiprows=1, delimiter=';')
 
-    if False:        
-        # Set up result output
-        dt = 6*hours   # The calculation time step 
-        outfile = 'model5_6h.txt' # Name of the result file
-        
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-    
-        cpu_list.append(cpu)
-    
-        # Set up result output
-        dt = 12*hours   # The calculation time step 
-        outfile = 'model5_12h.txt' # Name of the result file
-        
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-    
-        cpu_list.append(cpu)
-    
-        # Set up result output
-        dt = 24*hours   # The calculation time step 
-        outfile = 'model5_24h.txt' # Name of the result file
-        
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-    
-        cpu_list.append(cpu)        
-        
-    if True:
-        # Set up result output 
-        dt = 24*hours   # The calculation time step
-        dt_min = 1     # minimum calculation time step is 1 sec.
-        outfile = 'model5_24h2.txt' # Name of the result file
-        
-        # Call Finite Difference engine    
-        u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, dt_min=dt_min, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint)
-        cpu_list.append(cpu)        
-    
-    print 'CPU time:', cpu_list
-        
-    data_1h  = np.loadtxt('model5_1h.txt',  skiprows=1, delimiter=';')
-    data_3h  = np.loadtxt('model5_3h.txt',  skiprows=1, delimiter=';')
-    data_6h  = np.loadtxt('model5_6h.txt',  skiprows=1, delimiter=';')
-    data_12h = np.loadtxt('model5_12h.txt', skiprows=1, delimiter=';')
-    data_24h = np.loadtxt('model5_24h.txt', skiprows=1, delimiter=';')
-    data_24h2 = np.loadtxt('model5_24h2.txt', skiprows=1, delimiter=';')
+        print "diff 1h- 3h  = {0}".format(np.max( data_1h[:,2:]-data_3h[:,2:]))        
+        print "diff 1h- 6h  = {0}".format(np.max( data_1h[:,2:]-data_6h[:,2:]))        
+        print "diff 1h-12h  = {0}".format(np.max( data_1h[:,2:]-data_12h[:,2:]))        
+        print "diff 1h-24h  = {0}".format(np.max( data_1h[:,2:]-data_24h[:,2:]))        
+        print "diff 1h-24h2 = {0}".format(np.max( data_1h[:,2:]-data_24h2[:,2:]))        
 
-    print "diff 1h- 3h  = {0}".format(np.max( data_1h[:,2:]-data_3h[:,2:]))        
-    print "diff 1h- 6h  = {0}".format(np.max( data_1h[:,2:]-data_6h[:,2:]))        
-    print "diff 1h-12h  = {0}".format(np.max( data_1h[:,2:]-data_12h[:,2:]))        
-    print "diff 1h-24h  = {0}".format(np.max( data_1h[:,2:]-data_24h[:,2:]))        
-    print "diff 1h-24h2 = {0}".format(np.max( data_1h[:,2:]-data_24h2[:,2:]))        
+        print "diff  3h- 6h  = {0}".format(np.max( data_3h[:,2:]-data_6h[:,2:]))        
+        print "diff  3h-12h  = {0}".format(np.max( data_3h[:,2:]-data_12h[:,2:]))        
+        print "diff  3h-24h  = {0}".format(np.max( data_3h[:,2:]-data_24h[:,2:]))        
+        print "diff  6h-12h  = {0}".format(np.max( data_6h[:,2:]-data_12h[:,2:]))        
+        print "diff  6h-24h  = {0}".format(np.max( data_6h[:,2:]-data_24h[:,2:]))
+        print "diff 12h-24h  = {0}".format(np.max(data_12h[:,2:]-data_24h[:,2:]))
 
-    print "diff  3h- 6h  = {0}".format(np.max( data_3h[:,2:]-data_6h[:,2:]))        
-    print "diff  3h-12h  = {0}".format(np.max( data_3h[:,2:]-data_12h[:,2:]))        
-    print "diff  3h-24h  = {0}".format(np.max( data_3h[:,2:]-data_24h[:,2:]))        
-    print "diff  6h-12h  = {0}".format(np.max( data_6h[:,2:]-data_12h[:,2:]))        
-    print "diff  6h-24h  = {0}".format(np.max( data_6h[:,2:]-data_24h[:,2:]))
-    print "diff 12h-24h  = {0}".format(np.max(data_12h[:,2:]-data_24h[:,2:]))
-
-    print "avg  3h- 6h  = {0}".format(np.mean( data_3h[:,2:]-data_6h[:,2:]))        
-    print "avg  3h-12h  = {0}".format(np.mean( data_3h[:,2:]-data_12h[:,2:]))        
-    print "avg  3h-24h  = {0}".format(np.mean( data_3h[:,2:]-data_24h[:,2:]))        
-    print "avg  6h-12h  = {0}".format(np.mean( data_6h[:,2:]-data_12h[:,2:]))        
-    print "avg  6h-24h  = {0}".format(np.mean( data_6h[:,2:]-data_24h[:,2:]))
-    print "avg 12h-24h  = {0}".format(np.mean(data_12h[:,2:]-data_24h[:,2:]))
-    
-    
-    soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_3h[:,2:],  time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])
-    soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_6h[:,2:],  time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])
-    soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_12h[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
-    soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_24h2[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
-    soilfreeze1d.plot_surf(data=data_24h[:,2:]-data_24h2[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
-    
-#    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_6h[:,2:],  time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
-#    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_12h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
-#    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
-#    soilfreeze1d.plot_surf(data=data_6h[:,2:]- data_12h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
-#    soilfreeze1d.plot_surf(data=data_6h[:,2:]- data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
-#    soilfreeze1d.plot_surf(data=data_12h[:,2:]-data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+        print "avg  3h- 6h  = {0}".format(np.mean( data_3h[:,2:]-data_6h[:,2:]))        
+        print "avg  3h-12h  = {0}".format(np.mean( data_3h[:,2:]-data_12h[:,2:]))        
+        print "avg  3h-24h  = {0}".format(np.mean( data_3h[:,2:]-data_24h[:,2:]))        
+        print "avg  6h-12h  = {0}".format(np.mean( data_6h[:,2:]-data_12h[:,2:]))        
+        print "avg  6h-24h  = {0}".format(np.mean( data_6h[:,2:]-data_24h[:,2:]))
+        print "avg 12h-24h  = {0}".format(np.mean(data_12h[:,2:]-data_24h[:,2:]))
+        
+        
+        soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_3h[:,2:],  time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+        soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_6h[:,2:],  time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+        soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_12h[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
+        soilfreeze1d.plot_surf(data=data_1h[:,2:]-data_24h2[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
+        soilfreeze1d.plot_surf(data=data_24h[:,2:]-data_24h2[:,2:], time=data_1h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
+        
+    #    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_6h[:,2:],  time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+    #    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_12h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
+    #    soilfreeze1d.plot_surf(data=data_3h[:,2:]- data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])    
+    #    soilfreeze1d.plot_surf(data=data_6h[:,2:]- data_12h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+    #    soilfreeze1d.plot_surf(data=data_6h[:,2:]- data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
+    #    soilfreeze1d.plot_surf(data=data_12h[:,2:]-data_24h[:,2:], time=data_3h[:,0], depths=x, cont_levels=[-0.05, 0.05])
 
     
     
