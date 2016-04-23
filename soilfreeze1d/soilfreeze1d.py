@@ -39,11 +39,10 @@ store solutions, etc.
 """
 
 import pdb
-import sys, time
+import time
 import os.path
+import fractions
 import numpy as np
-from numpy import linspace, zeros, pi
-from matplotlib.pyplot import plot, savefig, draw, show, figure
 import matplotlib
 matplotlib.use('GTKAgg')
 import matplotlib.pyplot as plt
@@ -57,8 +56,14 @@ days = 3600.*24      # number of seconds in a day
 
 
 class HarmonicTemperature(object):
-    """Calculates harmonically varying temperature, to be used as
-    upper boundary condition in a fixed upper boundary solution.
+    """Calculates harmonically varying temperature, which could be used to 
+    approximate the seasonal variation air temperature and applied as upper 
+    boundary condition.
+    
+    When called with time as argument, the class returns a temperature
+    according to the following formula:
+    
+    T = maat - amplitude * cos(2*pi*(time-lag)/(365.242*days))
     
     time       Time in seconds.
     maat       Mean Annual Airt Temperature.
@@ -67,6 +72,7 @@ class HarmonicTemperature(object):
 
     The period of the oscillation is 365.242 days = 1 year
     """
+    
     def __init__(self, maat=-2, amplitude=8, lag=0*days):
         self.maat = maat
         self.amplitude = amplitude
@@ -76,15 +82,16 @@ class HarmonicTemperature(object):
         """Returns the temperature at the specified time using a harmonic
         temperature variation.
         """
-        return self.maat - self.amplitude * np.cos(2*pi*(time-self.lag)/(365.242*days))
+        return self.maat - self.amplitude * \
+                    np.cos(2*np.pi*(time-self.lag)/(365.242*days))
 
 
 class TimeInterpolator(object):
-    """Class to make linear interpolation of time series, keeping
-    track of the last location in the time series for quick
-    positioning.
-    This class will be usefull for sequential time stepping
-    with occasional reverse time steps.
+    """Class to make linear interpolation of time series, keeping track of the 
+    last location in the time series for quick positioning.
+    This class will be usefull for sequential time stepping with occasional 
+    reverse time steps. It could be used e.g. for interpolation of observed
+    air temperature data to be used as upper boundary condition.
     It will be slow for general purpose interpolation.
     
     Usage:
@@ -217,6 +224,14 @@ class FileStorage(object):
         else:
             # t is not at a regular storage interval, so do nothing
             pass
+        
+    def add_comment(self, text):
+        """Adds a comment line to the file."""
+        self.flush()
+
+        with open(self.filename, 'a') as f:  # open the file
+            f.write('# {0}\n'.format(text))
+        
     
     def flush(self):
         """Writes buffer to disk file."""
@@ -381,37 +396,118 @@ class LayeredModel(object):
             axes[-1].plot(T,unfrw,'-k')
             axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
             
-        show()
-        draw()
-    
-            
+        plt.draw()        
+        plt.show()
         
     
-        
-    
-
-            
-                
-                
-        
-    
-    # DONE: Add method to retrieve all parameters for a specific layers
-    
-    # DONE: Add method to calculate the grid point values of a specified parameter, given an array of gridpoint depths.
-    
+    # DONE: Add method to retrieve all parameters for a specific layers    
+    # DONE: Add method to calculate the grid point values of a specified parameter, given an array of gridpoint depths.    
     # Add method to visualize the layered model somehow (including the unfrozen water content curve...)
-        
-        
 
 
+class SolverTime(object):
+    """Class that handles adaptive time stepping for finite difference solver.
+    """
     
+    def __init__(self, t0, dt, dt_min=360, optimistic=False):
+        self.time = fractions.Fraction(t0).limit_denominator()
+        self.previous_time = None
+        self.dt_max = fractions.Fraction(dt).limit_denominator()
+        self.dt_min = dt_min
+        self.dt_fraction = fractions.Fraction(1,1)      
+        self.dt = self.dt_max*self.dt_fraction
+        self.step_up_allowed = False
+        self.optimistic = optimistic
+        self._o_counter = 0        
+        
+    def _is_power2(self, num):
+        """Tests if num is a power of two."""
+        return ((num & (num - 1)) == 0) and num > 0
+        
+    def step(self):
+        """Evolve time with the current time step size. Time step is increased
+        if flag is set and time step fraction allows (we only step up when we 
+        we are sure the new time step is in sync with the nominal (maximum) 
+        time step.)
+        
+        """
+        if self.optimistic and self._o_counter > 1:
+            # If we are allowed to be optimistic, set step-up flag if the
+            # last two steps did not result in a step size decrease.
+            # = if today is no worse than yesterday, assume tomorrow will 
+            #   be even better.
+            self.step_up_allowed = True
+        
+        if self.step_up_allowed and self.dt_fraction < 1:
+            # We are allowed to increase the time step
+            if self.time%(self.dt*2) == 0:
+                # yes new time step will be in sync, so we can increase
+                self.dt_fraction *= 2
+                self.dt = self.dt_max*self.dt_fraction
+                self.step_up_allowed = False  # reset flag
+            else:
+                # No, we are not at a power-of-two fraction
+                # do nothing and step up next time we get the chance
+                pass
+        else:
+            # No we are not allowed to increase time step, do nothing
+            pass
+        
+        self.previous_time = self.time  # store present time step
+        self.time += self.dt  # take new step
+        self._o_counter += 1
+        self.show()
+        
+    def step_back(self):
+        """Take backward step, restoring the previous time."""
+        if self.previous_time is not None:
+            self.time = self.previous_time
+            self.previous_time = None
+        else:
+            raise ValueError('Cannot step backwards.')
+        self.show()
 
-def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
+    def increase_step(self, force=False):
+        """Increase the current time step, dt, by a factor of 2."""
+        if force and self.dt_fraction<1:
+            self.dt_fraction *= 2
+            self.dt = self.dt_max*self.dt_fraction
+        else:
+            self.step_up_allowed = True
+        self.show()
+        
+    def decrease_step(self):
+        """Reduce the current time step, dt, by a factor of 2."""
+        if self.dt_fraction/2*self.dt_max >= self.dt_min:
+            self.dt_fraction /= 2
+            self.dt = self.dt_max*self.dt_fraction
+            success = True
+        else:
+            success = False
+        self.step_up_allowed = False
+        self._o_counter = 0
+        self.show()
+        return success
+        
+    def __call__(self):
+        """Return the current time."""
+        return float(self.time)
+
+    def show(self):
+        return
+        print "time:        {0}".format(self.time)
+        print "time-1:      {0}".format(self.previous_time)
+        print "dt_fraction: {0}".format(self.dt_fraction)        
+        print "allow incr:  {0}".format(self.step_up_allowed)    
+
+
+def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
                  outfile='model_result.txt',
-                 outint=1*days):
+                 outint=1*days,
+                 silent=False):
     """Full solver for the model problem using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -425,34 +521,33 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
-    x = linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
     dx = x[1] - x[0]
     
-    Nt = int(round((T-t0)/float(dt)))
-    t = linspace(t0, T, Nt+1)   # mesh points in time
+    #Nt = int(round((t_end-t0)/float(dt)))
     
-    u   = zeros(Nx+1)   # solution array at t[tid+1]
-    u_1 = zeros(Nx+1)   # solution at t[tid]
-    u_bak = zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
+    u   = np.zeros(Nx+1)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx+1)   # solution at t[tid]
+    u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
 
     dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
-    dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
-                         # averaged over two cells except for first and last.
+    #dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
+    #                             # averaged over two cells except for first and last.
     
     # Representation of sparse matrix and right-hand side
-    diagonal = zeros(Nx+1)
-    lower    = zeros(Nx)
-    upper    = zeros(Nx)
-    b        = zeros(Nx+1)
-    A_m      = zeros(Nx)
-    B_m      = zeros(Nx+1)
-    C_m      = zeros(Nx)
-    unfrw_u  = zeros(Nx+1)
-    unfrw_u1 = zeros(Nx+1)
+    diagonal = np.zeros(Nx+1)
+    lower    = np.zeros(Nx)
+    upper    = np.zeros(Nx)
+    b        = np.zeros(Nx+1)
+    A_m      = np.zeros(Nx)
+    B_m      = np.zeros(Nx+1)
+    C_m      = np.zeros(Nx)
+    unfrw_u  = np.zeros(Nx+1)
+    unfrw_u1 = np.zeros(Nx+1)
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw':
-        print "Using unfrozen water parameters"
+        if not silent: print "Using unfrozen water parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -465,7 +560,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'stefan':
-        print "Using stefan solution parameters"
+        if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -477,7 +572,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
         interval = Layers.pick_values(x, 'interval')
         Tf = Layers.pick_values(x, 'Tf')
     else:
-        print "Using standard parameters"
+        if not silent: print "Using standard parameters"
         k_th = Layers.pick_values(x, 'k')
         C_th = Layers.pick_values(x, 'C')
         k_fr = np.nan
@@ -491,22 +586,28 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
     u = u_1 + 0.001    # initialize u for finite differences
     
     if user_action is not None:
-        user_action(u_1, x, t[0])
+        user_action(u_1, x, t0)
 
     datafile = FileStorage(outfile, depths=x, 
                            interval=outint, buffer_size=30)        
-    datafile.add(t[0], ub(t[0]), u)
+    datafile.add(t0, ub(t0), u)
        
-    # Time loop
-    for tid in range(0, Nt):
-
+    
+    solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
+    iter1 = 0    
+    
+    # Time loop    
+    while solver_time() < t_end:
+        convergence = False        
+        iter1 += 1        
+        
         # u_1 holds the temperatures at time step n
         # u   will eventually hold calculated temperatures at step n+1
         
         u_bak = u_1 
         
-        #pdb.set_trace()
-        print '{0:d}'.format(tid) ,
+        if not silent:
+            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'unfrw':
             phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
@@ -523,58 +624,20 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
         #    pdb.set_trace()
         
         
-        F = dt/(2*dx**2)        
+        F = solver_time.dt/(2*dx**2)        
 
 
         if Layers.parameter_set == 'unfrw':
-            maxiter = 10
+            maxiter2 = 5
         else:
-            maxiter = 1
+            maxiter2 = 1
 
         
-        for iter in xrange(maxiter):
+        for iter2 in xrange(maxiter2):
             
             if Layers.parameter_set == 'unfrw':
-                # We calculate finite difference of unfrozen water based on the vertical
-                # temperature gradient. We can do this because we have no significant
-                # heat sources, and thus it is the vertical temperature difference
-                # that drives the flow of energy.
-                
-                if False:
-                    # THIS IS THE ORIGINAL ATTEMPT, WHICH DOES NOT WORK WELL
-                    C_add_1 = - L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
-                    
-    #                dT[0:Nx-1] = u_1[0:Nx-1]-u_1[1:Nx]
-    #                dT[Nx] = 0.
-    #                dT[1:Nx] += dT[0:Nx-1]
-    #                dT[1:Nx-1] = dT[1:Nx-1]/2
-    #                
-    #                dudT[0:Nx-1] = (unfrw_u1[0:Nx-1]-unfrw_u1[1:Nx])/(u_1[0:Nx-1]-u_1[1:Nx])
-    #                dudT[Nx] = 0.
-    #                dudT[1:Nx] += dudT[0:Nx-1]
-    #                dudT[1:Nx-1] = dudT[1:Nx-1]/2                
-    
-    
-                    dT[0:-1] = (u_1[0:-1]-u_1[1:])
-                    dT[-1] = 0
-                    dT[1:] += (u_1[1:]-u_1[0:-1])
-                    dT[1:-1] *= 0.5   # divide by two inplace
-    
-                    
-                    dudT[0:-1] = (unfrw_u1[0:-1]-unfrw_u1[1:])/(u_1[0:-1]-u_1[1:])
-                    dudT[-1] = 0
-                    dudT[1:] += (unfrw_u1[1:]-unfrw_u1[0:-1])/(u_1[1:]-u_1[0:-1])
-                    dudT[1:-1] *= 0.5   # divide by two inplace
-    
-                    C_add_2 = L * dudT
-                    
-                    #C_add = np.where(np.logical_or(np.abs(dT)<1e-6, np.isnan(dudT)), C_add_1, C_add_2)
-                    #C_add = np.where(np.isinf(dudT), C_add_1, C_add)
-                    
-                    C_add = C_add_1
-            
                 # NEW APPROACH TRYING AN ITERATION SCHEME
-                if iter == 0:
+                if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
@@ -586,7 +649,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
                     # next time step exists. Use that to calculate a finite
                     # difference.
                     
-                    dT = (u-u_1)
+                    #dT = (u-u_1)
                     dudT = (unfrw_u-unfrw_u1)/(u-u_1)
                     
                     C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
@@ -613,12 +676,7 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
             #A_N = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
             #B_N = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
             #C_N = F*(2*k_eff[Nx])/C_app[Nx]    
-            #A_m = F*(2*k_eff[1:Nx])/C_app[1:Nx]
-            #B_m = F*(4*k_eff[1:Nx])/C_app[1:Nx]
-            #C_m = F*(2*k_eff[1:Nx])/C_app[1:Nx]    
-            #A_N = B_m[-1]
-            #B_N = B_m[-1]
-            #C_N = C_m[-1]
+
             
             # Compute sparse matrix (scipy format)
             diagonal[1:-1] = 1 + theta*B_m[1:-1]
@@ -641,19 +699,18 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
             else:
                 raise ValueError('Unknown lower boundary type')
 
-            U = scipy.sparse.diags(
-                diagonals=[diagonal, lower, upper],
-                offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
-                format='csr')
+            U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
+                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
+                                   format='csr')
             #print A.todense()
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(t[tid])    # upper boundary conditions
+            b[0] = ub(solver_time())    # upper boundary conditions
             
             # Add lower boundary condition
             if lb_type == 1:
-                b[-1] = lb(t[tid])  
+                b[-1] = lb(solver_time())  
             elif lb_type == 2:
                 #b[-1] = u_1[Nx] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) - 2*C_N*dx*grad
                 b[-1] = dx*grad
@@ -669,46 +726,64 @@ def solver_theta(Layers, Nx, dt, T, t0=0, theta=1,
             
             unfrw_u = n*phi_u
             
-            #if np.any(np.abs(unfrw_u-unfrw_u1)>0.05):
-            #    dt = dt/2.
-            #else:
-            #    break
-            
             if Layers.parameter_set == 'unfrw':
-                #print "{0:.5f}".format(u[10]),
-                change = (u-u_bak)/u_bak*100
-                print "{0:.8f}".format(np.max(change)),
-                
-                #if np.any(change>=1.0):
-                #    pdb.set_trace
-    
-                if np.max(change) < 0.001:
-                    # break iteration loop
-                    # since no improvement
-                    break                
+                if iter2 != 0:       # Always do at least 1 iteration
+                    change = (u-u_bak)/u_bak
+                    if not silent:
+                        print "{0:.8f}%".format(np.max(change)*100),
+        
+                    if np.max(change) < 0.00001:
+                        # break iteration loop since no significant change in 
+                        # temperature is observed.
+                        convergence = True
+                        u_bak = u.copy()
+                        break
+            else:
+                convergence = True
+                u_bak = u.copy()
             
             u_bak = u.copy()
             
-             
-        print "Time step completed: {0:d} iterations".format(iter)
-        #print "{0:d} iterations. Done!".format(iter)
-        
-        #dt = dt*2.
 
-        u[0] = ub(t[tid+1])            
-        if user_action is not None:
-            user_action(u, x, t[tid+1])
+        if not convergence:
+            if not silent:
+                print "No convergence.",
+            success = solver_time.decrease_step()
+            # We decrease time step, because we did not see
+            # sufficient improvement within maxiter2 iterations.
+            # Since solver_time is optimistic, it will automatically
+            # increase time step gradually.
+            
+            # If success is False, we have reached the minimum time step.            
+            
+            # do not step forward in time, we need to recalculate for time n+dt
+            
+            if success:
+                if not silent:
+                    print "dt reduced."
+            else:
+                if not silent: 
+                    print "Reduction impossible.",
 
-        # Update u_1 before next step
-        #u_1[:] = u
-
-        datafile.add(t[tid+1], ub(t[tid+1]), u)
-        
-        u_1, u = u, u_1
+        if convergence or not success:
+            # We had convergence, prepare for next time step.             
+            if not silent: 
+                print "Done! {0:d} iters".format(iter2)
+            
+            solver_time.step()        
+            
+            u[0] = ub(solver_time())            
+            if user_action is not None:
+                user_action(u, x, solver_time())
+    
+            datafile.add(solver_time(), ub(solver_time()), u)
+            
+            u_1, u = u, u_1
     
     datafile.flush()
-    tstop = time.clock()
-    return u, x, t, tstop-tstart
+    tstop = time.clock()    
+    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    return u, x, solver_time(), tstop-tstart
     
 
 class Visualizer_T_dT(object):
@@ -841,146 +916,6 @@ class Visualizer_T(object):
         
     def update(self, u, x, t):
          self(u, x, t)       
-#        self.ax1.lines[0].set_xdata(u)
-#        self.ax1.set_title('t=%f' % (t/(3600*24.)))
-        
-#        plt.draw()
-
-        
-    
-def test_FD_unfrw(scheme='theta', Nx=100, version='vectorized', fignum=99, theta=1.0, z_max=np.inf, animate=True):
-    pylab.ion()
-    Layers = LayeredModel(type='unfrw')
-
-    Layers.add(Thickness=1,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
-    Layers.add(Thickness=29,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
-    
-    dt = 1*days          # seconds
-    T = 10*365*days  # seconds
-    
-
-    x = linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    dx = x[1] - x[0]
-    
-    def initialTemperature(x):
-        """Constant temperature as initial condition."""
-        constant_temperature = -2.
-        return np.ones_like(x)*constant_temperature
-
-    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
-
-    # Set up the plotting
-    plot_solution = Visualizer_T(Tmin=-8, Tmax=4, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., 0, Layers, scheme=scheme)
-        
-    if animate:
-        user_action = plot_solution
-    else:
-        user_action = None
-        
-    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
-                                Tinit=initialTemperature, 
-                                ub=surf_T, lb=lambda x: -2.,
-                                user_action=user_action,
-                                outfile='test_dat.txt',
-                                outint=1*days)
-
-    plot_solution.update(initialTemperature(x), x, t[-1], 0, Layers)
-    
-    print u                 
-    print 'CPU time:', cpu    
-    
-    return u, dt, dx, surf_T(T)
-
-
-
-def test_FD_stefan(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
-    pylab.ion()
-    Layers = LayeredModel(type='stefan', interval=1)
-
-    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Test 1')    
-    #Layers.add(Thickness=28, n=0.3,  C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=-0.0001, soil_type='Test 2')
-    
-    dt = 0.2*days          # seconds
-    T = (5*155+1)*0.2*days  # seconds
-    
-
-    x = linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    dx = x[1] - x[0]
-    
-    def initialTemperature(x):
-        """Constant temperature as initial condition."""
-        constant_temperature = -2.
-        return np.ones_like(x)*constant_temperature
-
-    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
-
-    # Set up the plotting
-    plot_solution = Visualizer_T_dT(Tmin=-10, Tmax=6, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, scheme=scheme)
-        
-    if animate:
-        user_action = plot_solution
-    else:
-        user_action = None
-        
-    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
-                                Tinit=initialTemperature, 
-                                ub=surf_T, lb=lambda x: -2.,
-                                user_action=user_action,
-                                outfile='test_dat.txt',
-                                outint=1*days)
-
-    plot_solution.update(u, x, t[-1])
-    
-    print u                 
-    print 'CPU time:', cpu    
-    
-    return u, dt, dx, surf_T(T)
-
-
-def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
-    pylab.ion()
-    Layers = LayeredModel(type='stefan', interval=1)
-
-    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Test 1')    
-    
-    dt = 0.2*days          # seconds
-    T = (5*155+1)*0.2*days  # seconds
-    
-
-    x = linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    dx = x[1] - x[0]
-    
-    def initialTemperature(x):
-        """Constant temperature as initial condition."""
-        constant_temperature = -2.
-        return np.ones_like(x)*constant_temperature
-
-    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
-
-    # Set up the plotting
-    plot_solution = Visualizer_T_dT(Tmin=-10, Tmax=6, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, scheme=scheme)
-        
-    if animate:
-        user_action = plot_solution
-    else:
-        user_action = None
-        
-    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
-                                Tinit=initialTemperature, 
-                                ub=surf_T, lb_type=2, grad=0.08333,
-                                user_action=user_action,
-                                outfile='test_dat.txt',
-                                outint=1*days)
-
-    plot_solution.update(u, x, t[-1])
-    
-    print u                 
-    print 'CPU time:', cpu    
-    
-    return u, dt, dx, surf_T(T)
 
         
 # --------------------------------------------------------------
@@ -1069,20 +1004,16 @@ def plot_unfrw(params, T1=-10, T2=2):
     Tstar = f_Tstar(params['Tf'], 1.0, params['alpha'], params['beta'])
     unfrw = f_unfrozen_water(T, params['alpha'], params['beta'], Tstar, params['n'])
     
-    figure()
-    plot(T,unfrw,'-k')
+    plt.figure()
+    plt.plot(T,unfrw,'-k')
     
-    show()
-    draw()
-    
-    pdb.set_trace()
-    
+    plt.show()
+    plt.draw()
 
 
 def plot_trumpet(fname, start=0, end=-1, **kwargs):
     figBG   = 'w'        # the figure background color
     axesBG  = '#ffffff'  # the axies background color
-    textsize = 8        # size for axes text
     
     fh = None
 
@@ -1106,7 +1037,7 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
         line = f.readline()
     
     time = data[:,0]/(1*days)
-    surf_T = data[:,1]
+    #surf_T = data[:,1]
     data = data[start:end,2:]
     
     depths = np.array(line.split(';')[2:], dtype=float)    
@@ -1147,13 +1078,12 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     
     
 
-def plot_surf(fname, annotations=True, figsize=(15,6),
-                cmap=plt.cm.bwr, node_depths=True, cax=None,
-                cont_levels=[0], **kwargs):
+def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True, 
+              figsize=(15,6), cmap=plt.cm.bwr, node_depths=True, cax=None,
+              cont_levels=[0], title='', **kwargs):
 
     figBG   = 'w'        # the figure background color
     axesBG  = '#ffffff'  # the axies background color
-    textsize = 8        # size for axes text
     left, width = 0.1, 0.8
     rect1 = [left, 0.2, width, 0.6]     #left, bottom, width, height
 
@@ -1174,20 +1104,24 @@ def plot_surf(fname, annotations=True, figsize=(15,6),
 
     hstate = ax.ishold()
 
-    data = np.loadtxt(fname, skiprows=1, delimiter=';')
-    with open(fname, 'r') as f:
-        line = f.readline()
+    if fname is not None:
+        data = np.loadtxt(fname, skiprows=1, delimiter=';')
+        with open(fname, 'r') as f:
+            line = f.readline()
     
-    time = data[:,0]/(1*days)
-    surf_T = data[:,1]
-    data = data[:,2:]
+        time = data[:,0]/(1*days)
+        #surf_T = data[:,1]
+        data = data[:,2:]
     
-    depths = np.array(line.split(';')[2:], dtype=float)    
+        depths = np.array(line.split(';')[2:], dtype=float)    
     
     # Find the maximum and minimum temperatures, and round up/down
     mxn = np.max(np.abs([np.floor(data.min()),
            np.ceil(data.max())]))
     levels = np.arange(-mxn,mxn+1)
+    
+    if len(levels) < 2:
+        levels = np.array([-0.5,0,0.5])
 
     xx, yy  = np.meshgrid(time, depths)
 
@@ -1214,17 +1148,19 @@ def plot_surf(fname, annotations=True, figsize=(15,6),
     #fh.autofmt_xdate()
 
     if annotations:
-        fh.suptitle(fname)
+        if title == '':
+            fh.suptitle(fname)
+        else:
+            fh.suptitle(title)
 
     ax.set_ylabel('Depth [m]')
     ax.set_xlabel('Time [days]')
 
-    pylab.draw()
+    plt.draw()
+    plt.show()
 
-    return pylab.gca()
+    return ax
 
-
-    
     
 # --------------------------------------------------------------
 #
@@ -1271,6 +1207,140 @@ def test_LayeredModel():
     Layers.add(Thickness=28, n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=-0.0001, soil_type='Test 2')    
     
     Layers.show(fig=101)        
+
+
+def test_FD_unfrw(scheme='theta', Nx=100, version='vectorized', fignum=99, theta=1.0, z_max=np.inf, animate=True):
+    pylab.ion()
+    Layers = LayeredModel(type='unfrw')
+
+    Layers.add(Thickness=1,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=29,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    
+    dt = 1*days          # seconds
+    T = 10*365*days  # seconds
+    
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    dx = x[1] - x[0]
+    
+    def initialTemperature(x):
+        """Constant temperature as initial condition."""
+        constant_temperature = -2.
+        return np.ones_like(x)*constant_temperature
+
+    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
+
+    # Set up the plotting
+    plot_solution = Visualizer_T(Tmin=-8, Tmax=4, z_max=z_max, fig=fignum)
+    plot_solution.initialize(initialTemperature(x), x, 0., 0, Layers, scheme=scheme)
+        
+    if animate:
+        user_action = plot_solution
+    else:
+        user_action = None
+        
+    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
+                                Tinit=initialTemperature, 
+                                ub=surf_T, lb=lambda x: -2.,
+                                user_action=user_action,
+                                outfile='test_dat.txt',
+                                outint=1*days)
+
+    plot_solution.update(initialTemperature(x), x, t[-1], 0, Layers)
+    
+    print u                 
+    print 'CPU time:', cpu    
+    
+    return u, dt, dx, surf_T(T)
+
+
+
+def test_FD_stefan(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
+    pylab.ion()
+    Layers = LayeredModel(type='stefan', interval=1)
+
+    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Test 1')    
+    #Layers.add(Thickness=28, n=0.3,  C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=-0.0001, soil_type='Test 2')
+    
+    dt = 0.2*days          # seconds
+    T = (5*155+1)*0.2*days  # seconds
+    
+
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    dx = x[1] - x[0]
+    
+    def initialTemperature(x):
+        """Constant temperature as initial condition."""
+        constant_temperature = -2.
+        return np.ones_like(x)*constant_temperature
+
+    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
+
+    # Set up the plotting
+    plot_solution = Visualizer_T_dT(Tmin=-10, Tmax=6, z_max=z_max, fig=fignum)
+    plot_solution.initialize(initialTemperature(x), x, 0., Layers, scheme=scheme)
+        
+    if animate:
+        user_action = plot_solution
+    else:
+        user_action = None
+        
+    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
+                                Tinit=initialTemperature, 
+                                ub=surf_T, lb=lambda x: -2.,
+                                user_action=user_action,
+                                outfile='test_dat.txt',
+                                outint=1*days)
+
+    plot_solution.update(u, x, t[-1])
+    
+    print u                 
+    print 'CPU time:', cpu    
+    
+    return u, dt, dx, surf_T(T)
+
+
+def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
+    pylab.ion()
+    Layers = LayeredModel(type='stefan', interval=1)
+
+    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Test 1')    
+    
+    dt = 0.2*days          # seconds
+    T = (5*155+1)*0.2*days  # seconds
+    
+
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    dx = x[1] - x[0]
+    
+    def initialTemperature(x):
+        """Constant temperature as initial condition."""
+        constant_temperature = -2.
+        return np.ones_like(x)*constant_temperature
+
+    surf_T = HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
+
+    # Set up the plotting
+    plot_solution = Visualizer_T_dT(Tmin=-10, Tmax=6, z_max=z_max, fig=fignum)
+    plot_solution.initialize(initialTemperature(x), x, 0., Layers, scheme=scheme)
+        
+    if animate:
+        user_action = plot_solution
+    else:
+        user_action = None
+        
+    u, x, t, cpu = solver_theta(Layers, Nx, dt, T, theta=theta, 
+                                Tinit=initialTemperature, 
+                                ub=surf_T, lb_type=2, grad=0.08333,
+                                user_action=user_action,
+                                outfile='test_dat.txt',
+                                outint=1*days)
+
+    plot_solution.update(u, x, t[-1])
+    
+    print u                 
+    print 'CPU time:', cpu    
+    
+    return u, dt, dx, surf_T(T)
         
         
 if __name__ == '__main__':
