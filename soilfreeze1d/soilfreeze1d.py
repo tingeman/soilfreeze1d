@@ -817,6 +817,309 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     tstop = time.clock()    
     datafile.add_comment('cpu: {0}'.format(tstop-tstart))
     return u, x, solver_time(), tstop-tstart
+
+
+def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
+                     Tinit=lambda x: -2., 
+                     ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
+                     user_action=None,
+                     outfile='model_result.txt',
+                     outint=1*days,
+                     silent=False):
+    """Full solver for the model problem using the theta based finite difference 
+    approximation. Non Uniform Grid implemented using approximating Lagrange polynomials.
+    Vectorized implementation and sparse (n-diagonal) coefficient matrix.
+    
+    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+    lb_type=2   Neumann type lower boundary condition (specified gradient)    
+    grad        The gradient [K/m] to use for the lower boundary
+    """
+    
+    raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
+    
+    tstart = time.clock()
+    
+    L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
+    
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    dx = x[1] - x[0]
+    
+    #Nt = int(round((t_end-t0)/float(dt)))
+    
+    u   = np.zeros(Nx+1)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx+1)   # solution at t[tid]
+    u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
+
+    dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
+    #dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
+    #                             # averaged over two cells except for first and last.
+    
+    # Representation of sparse matrix and right-hand side
+    diagonal = np.zeros(Nx+1)
+    lower    = np.zeros(Nx)
+    upper    = np.zeros(Nx)
+    b        = np.zeros(Nx+1)
+    A_m      = np.zeros(Nx)
+    B_m      = np.zeros(Nx+1)
+    C_m      = np.zeros(Nx)
+    unfrw_u  = np.zeros(Nx+1)
+    unfrw_u1 = np.zeros(Nx+1)
+
+    # Get constant layer parameters distributed on the grid
+    if Layers.parameter_set == 'unfrw':
+        if not silent: print "Using unfrozen water parameters"
+        k_th = Layers.pick_values(x, 'k_th')
+        C_th = Layers.pick_values(x, 'C_th')
+        k_fr = Layers.pick_values(x, 'k_fr')
+        C_fr = Layers.pick_values(x, 'C_fr')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'stefan':
+        if not silent: print "Using stefan solution parameters"
+        k_th = Layers.pick_values(x, 'k_th')
+        C_th = Layers.pick_values(x, 'C_th')
+        k_fr = Layers.pick_values(x, 'k_fr')
+        C_fr = Layers.pick_values(x, 'C_fr')
+        n = Layers.pick_values(x, 'n')
+        
+        #interval = Layers.interval
+        #Tf = Layers.Tf
+        interval = Layers.pick_values(x, 'interval')
+        Tf = Layers.pick_values(x, 'Tf')
+    else:
+        if not silent: print "Using standard parameters"
+        k_th = Layers.pick_values(x, 'k')
+        C_th = Layers.pick_values(x, 'C')
+        k_fr = np.nan
+        C_fr = np.nan
+        #n = Layers.pick_values(x, 'n')
+    
+    # Set initial condition
+    for i in range(0,Nx+1):
+        u_1[i] = Tinit(x[i])
+
+    u = u_1 + 0.001    # initialize u for finite differences
+    
+    if user_action is not None:
+        user_action(u_1, x, t0)
+
+    datafile = FileStorage(outfile, depths=x, 
+                           interval=outint, buffer_size=30)        
+    datafile.add(t0, ub(t0), u)
+       
+    
+    solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
+    iter1 = 0    
+    
+    # Time loop    
+    while solver_time() < t_end:
+        convergence = False        
+        iter1 += 1        
+        
+        # u_1 holds the temperatures at time step n
+        # u   will eventually hold calculated temperatures at step n+1
+        
+        u_bak = u_1 
+        
+        if not silent:
+            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
+        
+        if Layers.parameter_set == 'std':
+            phi = 1.  # for standard solution there is no phase change
+            k_eff = k_th
+            C_eff = C_th
+            unfrw_u1 = 0.
+        else:
+            if Layers.parameter_set == 'unfrw':
+                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            elif Layers.parameter_set == 'stefan':
+                phi = f_phi_stefan(u_1, Tf, interval)
+
+            k_eff = f_k_eff(k_fr, k_th, phi)
+            C_eff = f_C_eff(C_fr, C_th, phi)
+            unfrw_u1 = n*phi
+        
+        
+        F = solver_time.dt/(2*dx**2)        
+
+
+        if Layers.parameter_set == 'unfrw':
+            maxiter2 = 5
+        else:
+            maxiter2 = 1
+
+        
+        for iter2 in xrange(maxiter2):
+            
+            if Layers.parameter_set == 'unfrw':
+                # NEW APPROACH TRYING AN ITERATION SCHEME
+                if iter2 == 0:
+                    # This is first iteration, approximate the latent heat 
+                    # component by the analytical derivative
+                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add = C_add_1
+                    #print "I:{0:.2f}".format(C_add[10]),                    
+                    
+                else:
+                    # A previous iteration exist, so an estimate of the
+                    # next time step exists. Use that to calculate a finite
+                    # difference for the unfrozen water content.
+                    
+                    #dT = (u-u_1)
+                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                    
+                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
+                    #print "*:{0:.2f}".format(C_add[10]),                    
+            
+                # Apparent heat capacity is the heat capacity + the latent heat effect
+                C_app = C_eff + C_add
+                #print "C:{0:.2f}".format(C_app[10]),
+                
+            elif Layers.parameter_set == 'stefan':
+                C_app = np.where(np.logical_and(np.less(u,Tf),np.
+                                                greater_equal(u, Tf-interval)), 
+                                 C_eff + L*n/interval, C_eff)
+            else:
+                C_app = C_eff
+            
+            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
+                pdb.set_trace()
+            
+            # Compute diagonal elements for inner points
+            A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
+            B_m[1:-1] = F*(k_eff[0:-2]+2*k_eff[1:-1]+k_eff[2:])/C_app[1:-1]
+            C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
+            
+            # Compute diagonal elements for lower boundary point
+            A_N       = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
+            B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
+            C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
+
+            
+            # Compute sparse matrix (scipy format)
+            diagonal[1:-1] = 1 + theta*B_m[1:-1]
+            lower = -theta*A_m  #1
+            upper = -theta*C_m  #1
+            
+            # Insert boundary conditions (Dirichlet)
+            diagonal[0] = 1
+            upper[0] = 0
+            
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                diagonal[Nx] = 1
+                lower[-1] = 0
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                diagonal[Nx] = 1
+                lower[-1] = -1
+            elif lb_type == 3:
+                # Second order Neumann solution for lower boundary
+                diagonal[Nx] = 1 + theta*B_N
+                lower[-1] = -theta*(A_N+C_N)  
+            else:
+                raise ValueError('Unknown lower boundary type')
+
+            U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
+                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
+                                   format='csr')
+            #print A.todense()
+                
+            # Compute known vector
+            b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
+            b[0] = ub(solver_time())    # upper boundary conditions
+            
+            # Add lower boundary condition
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                b[-1] = lb(solver_time())  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                b[-1] = dx*grad
+            elif lb_type == 3:
+                # First order Neumann solution for lower boundary
+                b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
+            
+            
+            u[:] = scipy.sparse.linalg.spsolve(U, b)
+
+            
+            if Layers.parameter_set == 'std':
+                unfrw_u = 0.
+                convergence = True
+            else:
+                if Layers.parameter_set == 'unfrw':
+                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                    unfrw_u = n*phi_u    
+                    
+                    if iter2 != 0:       # Always do at least 1 iteration
+                        change = (u-u_bak)/u_bak
+                        if not silent:
+                            print "{0:.8f}%".format(np.max(change)*100),
+            
+                        if np.max(change) < 0.00001:
+                            # break iteration loop since no significant change in 
+                            # temperature is observed.
+                            convergence = True
+                            u_bak = u.copy()
+                            break    
+                    
+                elif Layers.parameter_set == 'stefan':
+                    phi_u = f_phi_stefan(u, Tf, interval)
+                    unfrw_u = n*phi_u
+                    convergence = True
+            
+            u_bak = u.copy()
+            
+
+        if not convergence:
+            if not silent:
+                print "No convergence.",
+            success = solver_time.decrease_step()
+            # We decrease time step, because we did not see
+            # sufficient improvement within maxiter2 iterations.
+            # Since solver_time is optimistic, it will automatically
+            # increase time step gradually.
+            
+            # If success is False, we have reached the minimum time step.            
+            
+            # do not step forward in time, we need to recalculate for time n+dt
+            
+            if success:
+                if not silent:
+                    print "dt reduced."
+            else:
+                if not silent: 
+                    print "Reduction impossible.",
+
+        if convergence or not success:
+            # We had convergence, prepare for next time step.             
+            if not silent: 
+                print "Done! {0:d} iters".format(iter2)
+            
+            solver_time.step()        
+            
+            u[0] = ub(solver_time())            
+            if user_action is not None:
+                user_action(u, x, solver_time())
+    
+            datafile.add(solver_time(), ub(solver_time()), u)
+            
+            u_1, u = u, u_1
+    
+    datafile.flush()
+    tstop = time.clock()    
+    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    return u, x, solver_time(), tstop-tstart
+
+    
+    
+
     
 
 class Visualizer_T_dT(object):
