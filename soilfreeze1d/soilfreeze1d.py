@@ -835,6 +835,100 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     grad        The gradient [K/m] to use for the lower boundary
     """
     
+    def calc_Dp(x):
+        """Calculates the square diagonal matrix Dpp used to approximate the first derivative
+        of a function with known values at the points given by the vector x. 
+        The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
+        
+        Arguments:
+        x:  array of node depths
+        
+        Returns:
+        Dp: sparse matrix of Lagrange basis polynomial coefficients
+        """
+        
+        # Since python uses 0-indexing, the variable names and indices
+        # in the code differs from those in the theoretical derivation.
+        
+        N = len(x)
+        h = np.squeeze(x[1:]-x[:N-1]).astype(float)  # ensure that the array is one-dimensional and floating point!
+        
+        # Coefficients of the first row
+        a0 = -(2*h[0]+h[1])/(h[0]*(h[0]+h[1]))
+        b0 = (h[0]+h[1])/(h[0]*h[1]) 
+        c0 = -h[0]/(h[1]*(h[0]+h[1]))
+        
+        # Coefficients of the inner rows (1 to N-1)
+        # The following indicing corresponds to:
+        # h[1:]   =  h_{k+1}
+        # h[:n-2] =  h_k 
+        ak = -h[1:]/(h[:N-2]*(h[:N-2]+h[1:]))
+        bk = (h[1:]-h[:N-2])/(h[:N-2]*h[1:])
+        ck =  h[:N-2]/(h[1:]*(h[:N-2]+h[1:]))
+        
+        # Coefficients of the last row
+        aN = h[-1]/(h[-2]*(h[-1]+h[-2]))
+        bN = -(h[-1]+h[-2])/(h[-1]*h[-2])
+        cN = (2*h[-1]+h[-2])/(h[-1]*(h[-2]+h[-1]))
+        
+        # Staack everything up nicely in a sparse matrix
+        
+        # First create an array of all the values in the matrix
+        val  = np.hstack((a0,ak,aN,b0,bk,bN,c0,ck,cN))
+        # generate the row indices of each element (from 0 to N-1 three times)
+        row = np.tile(np.arange(N),3)
+        # generate the column indices, [0,0,1,...,k,...,N-2,N-1,N-1]
+        dex = np.hstack((0,np.arange(N-2),N-3))
+        col = np.hstack((dex,dex+1,dex+2))
+        
+        # create and return the sparse matrix
+        return scipy.sparse.csr_matrix((val,(row,col)),shape=(N,N))
+
+        
+    def calc_Dpp(x):
+        """Calculates the square diagonal matrix Dpp used to approximate the second derivative
+        of a function with known values at the points given by the vector x. 
+        The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
+        
+        Arguments:
+        x:  array of node depths
+        
+        Returns:
+        Dpp: sparse matrix of Lagrange basis polynomial coefficients
+        
+        NOTICE: The approximation at the boundaries (first and last row) are based on one-sided
+        Lagrange polynomials, and are only first order accurate, whereas the inner rows use
+        centered Lagrange polynomials, and are second order accurate.
+        """
+        
+        # Since python uses 0-indexing, the variable names and indices
+        # in the code differs from those in the theoretical derivation.
+        
+        N = len(x)
+        h = np.squeeze(x[1:]-x[:N-1]).astype(float)  # ensure that the array is one-dimensional and floating point!
+        
+        # Coefficients of the inner rows (1 to N-1)
+        # The following indicing corresponds to:
+        # h[1:]   =  h_{k+1}
+        # h[:n-2] =  h_k 
+        ak = 2/(h[:N-2]*(h[1:]+h[:N-2]))
+        bk = -2/(h[1:]*h[:N-2])
+        ck = 2/(h[1:]*(h[1:]+h[:N-2]))
+        
+        # Staack everything up nicely in a sparse matrix
+        
+        # First create an array of all the values in the matrix
+        val  = np.hstack((ak[0],ak,ak[-1],bk[0],bk,bk[-1],ck[0],ck,ck[-1]))
+        # generate the row indices of each element (from 0 to N-1 three times)
+        row = np.tile(np.arange(N),3)
+        # generate the column indices, [0,0,1,...,k,...,N-2,N-1,N-1]
+        dex = np.hstack((0,np.arange(N-2),N-3))
+        col = np.hstack((dex,dex+1,dex+2))
+        
+        # create and return the sparse matrix
+        return scipy.sparse.csr_matrix((val,(row,col)),shape=(N,N))        
+    
+    
     raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
     
     tstart = time.clock()
@@ -843,8 +937,6 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
     dx = x[1] - x[0]
-    
-    #Nt = int(round((t_end-t0)/float(dt)))
     
     u   = np.zeros(Nx+1)   # solution array at t[tid+1]
     u_1 = np.zeros(Nx+1)   # solution at t[tid]
@@ -865,6 +957,12 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     unfrw_u  = np.zeros(Nx+1)
     unfrw_u1 = np.zeros(Nx+1)
 
+    
+    # Calculate matrices of lagrange basis polynomial coefficients
+    Dp = calc_Dp(x) 
+    Dpp = calc_Dpp(x) 
+    
+    
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw':
         if not silent: print "Using unfrozen water parameters"
