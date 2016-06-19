@@ -55,6 +55,27 @@ import scipy.sparse.linalg
 days = 3600.*24      # number of seconds in a day
 
 
+class ConstantTemperature(object):
+    """Defines a constant temperature, which could be used to as upper 
+    boundary condition.
+    
+    When called with time as argument, the class returns the temperature
+    passed dureing initialization.
+    
+    T = constant temperature
+    
+    time       Time in seconds.
+    """
+    
+    def __init__(self, T=0.):
+        self.T = T
+        
+    def __call__(self, time):    
+        """Returns the constant temperature, regardless of the time passed.
+        """
+        return self.T
+
+
 class HarmonicTemperature(object):
     """Calculates harmonically varying temperature, which could be used to 
     approximate the seasonal variation air temperature and applied as upper 
@@ -577,7 +598,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C')
         k_fr = np.nan
         C_fr = np.nan
-        n = Layers.pick_values(x, 'n')
+        #n = Layers.pick_values(x, 'n')
     
     # Set initial condition
     for i in range(0,Nx+1):
@@ -609,19 +630,20 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         if not silent:
             print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
         
-        if Layers.parameter_set == 'unfrw':
-            phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
-        elif Layers.parameter_set == 'stefan':
-            phi = f_phi_stefan(u_1, Tf, interval)
-        else:
+        if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
+            k_eff = k_th
+            C_eff = C_th
+            unfrw_u1 = 0.
+        else:
+            if Layers.parameter_set == 'unfrw':
+                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            elif Layers.parameter_set == 'stefan':
+                phi = f_phi_stefan(u_1, Tf, interval)
 
-        k_eff = f_k_eff(k_fr, k_th, phi)
-        C_eff = f_C_eff(C_fr, C_th, phi)
-        unfrw_u1 = n*phi
-        
-        #if tid == 600:
-        #    pdb.set_trace()
+            k_eff = f_k_eff(k_fr, k_th, phi)
+            C_eff = f_C_eff(C_fr, C_th, phi)
+            unfrw_u1 = n*phi
         
         
         F = solver_time.dt/(2*dx**2)        
@@ -669,13 +691,15 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
                 pdb.set_trace()
             
-            # Update all inner points
+            # Compute diagonal elements for inner points
             A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
             B_m[1:-1] = F*(k_eff[0:-2]+2*k_eff[1:-1]+k_eff[2:])/C_app[1:-1]
             C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
-            A_N = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
-            B_N = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
-            C_N = F*(2*k_eff[Nx])/C_app[Nx]    
+            
+            # Compute diagonal elements for lower boundary point
+            A_N       = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
+            B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
+            C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
 
             
             # Compute sparse matrix (scipy format)
@@ -720,35 +744,36 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 b[-1] = dx*grad
             elif lb_type == 3:
                 # First order Neumann solution for lower boundary
-                b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) - 2*C_N*dx*grad
+                b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
             
             
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
-            if Layers.parameter_set == 'unfrw':
-                phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
-            elif Layers.parameter_set == 'stefan':
-                phi_u = f_phi_stefan(u, Tf, interval)
-            else:
-                phi_u = 1.  # for standard solution there is no phase change
             
-            unfrw_u = n*phi_u
-            
-            if Layers.parameter_set == 'unfrw':
-                if iter2 != 0:       # Always do at least 1 iteration
-                    change = (u-u_bak)/u_bak
-                    if not silent:
-                        print "{0:.8f}%".format(np.max(change)*100),
-        
-                    if np.max(change) < 0.00001:
-                        # break iteration loop since no significant change in 
-                        # temperature is observed.
-                        convergence = True
-                        u_bak = u.copy()
-                        break
-            else:
+            if Layers.parameter_set == 'std':
+                unfrw_u = 0.
                 convergence = True
-                u_bak = u.copy()
+            else:
+                if Layers.parameter_set == 'unfrw':
+                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                    unfrw_u = n*phi_u    
+                    
+                    if iter2 != 0:       # Always do at least 1 iteration
+                        change = (u-u_bak)/u_bak
+                        if not silent:
+                            print "{0:.8f}%".format(np.max(change)*100),
+            
+                        if np.max(change) < 0.00001:
+                            # break iteration loop since no significant change in 
+                            # temperature is observed.
+                            convergence = True
+                            u_bak = u.copy()
+                            break    
+                    
+                elif Layers.parameter_set == 'stefan':
+                    phi_u = f_phi_stefan(u, Tf, interval)
+                    unfrw_u = n*phi_u
+                    convergence = True
             
             u_bak = u.copy()
             
@@ -1088,7 +1113,7 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
 
 def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True, 
               figsize=(15,6), cmap=plt.cm.bwr, node_depths=True, cax=None,
-              cont_levels=[0], title='', **kwargs):
+              levels=None, cont_levels=[0], title='', **kwargs):
 
     figBG   = 'w'        # the figure background color
     axesBG  = '#ffffff'  # the axies background color
@@ -1124,12 +1149,13 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
         depths = np.array(line.split(';')[2:], dtype=float)    
     
     # Find the maximum and minimum temperatures, and round up/down
-    mxn = np.max(np.abs([np.floor(data.min()),
-           np.ceil(data.max())]))
-    levels = np.arange(-mxn,mxn+1)
-    
-    if len(levels) < 2:
-        levels = np.array([-0.5,0,0.5])
+    if levels is None:
+        mxn = np.max(np.abs([np.floor(data.min()),
+               np.ceil(data.max())]))
+        levels = np.arange(-mxn,mxn+1)
+        
+        if len(levels) < 2:
+            levels = np.array([-0.5,0,0.5])
 
     xx, yy  = np.meshgrid(time, depths)
 
@@ -1156,7 +1182,7 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     #fh.autofmt_xdate()
 
     if annotations:
-        if title == '':
+        if title == '' and fname is not None:
             fh.suptitle(fname)
         else:
             fh.suptitle(title)
