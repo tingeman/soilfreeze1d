@@ -1,8 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Apr 20 01:06:32 2016
-
 @author: thin
+
+===============================================================================
+
+This model script illustrates the use of the soilfreeze1d module for 
+calculating the thermal regime in a 1D model with one layer using the stefan 
+solution (phase change occurs linearly over a specified temperature interval).
+The model domain has an initial termperature of -2C at all nodes, and the 
+model is forced by a harmonic temperature variation at the upper boundary. 
+The lower boundary has a specified constant gradient of 0.08333 C/m.
+Results will be written to the file model1_results.txt at a daily interval.
+
+===============================================================================
+
 """
 
 # import standard pythom modules

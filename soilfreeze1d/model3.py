@@ -85,7 +85,7 @@ if __name__ == '__main__':
     # ... with no plotting since that will be much quicker
     #==========================================================================
                        
-    animate = False
+    animate = True
     t0 = 0*days         # Start time of the model    
     T = 10*365*days+t0  # The total calculation period
     
@@ -104,7 +104,7 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     # Print the time spent
     print 'Spin-up run, CPU time: {0:.3f} s'.format(cpu)
