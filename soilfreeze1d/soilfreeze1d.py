@@ -819,7 +819,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     return u, x, solver_time(), tstop-tstart
 
 
-def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
+def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                      Tinit=lambda x: -2., 
                      ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                      user_action=None,
@@ -935,29 +935,21 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    dx = x[1] - x[0]
+    dx = x[1:] - x[0:-2]
     
     u   = np.zeros(Nx+1)   # solution array at t[tid+1]
     u_1 = np.zeros(Nx+1)   # solution at t[tid]
     u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
 
     dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
-    #dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
-    #                             # averaged over two cells except for first and last.
     
-    # Representation of sparse matrix and right-hand side
-    diagonal = np.zeros(Nx+1)
-    lower    = np.zeros(Nx)
-    upper    = np.zeros(Nx)
-    b        = np.zeros(Nx+1)
-    A_m      = np.zeros(Nx)
-    B_m      = np.zeros(Nx+1)
-    C_m      = np.zeros(Nx)
+    # Representation of right-hand side and unfrozen water contents from two successive calculations
+    d = np.zeros(Nx+1)
+    
+    # Representation of unfrozen water contents from two successive calculations
     unfrw_u  = np.zeros(Nx+1)
     unfrw_u1 = np.zeros(Nx+1)
 
-    
     # Calculate matrices of lagrange basis polynomial coefficients
     Dp = calc_Dp(x) 
     Dpp = calc_Dpp(x) 
@@ -1043,9 +1035,6 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             unfrw_u1 = n*phi
         
         
-        F = solver_time.dt/(2*dx**2)        
-
-
         if Layers.parameter_set == 'unfrw':
             maxiter2 = 5
         else:
@@ -1055,28 +1044,20 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         for iter2 in xrange(maxiter2):
             
             if Layers.parameter_set == 'unfrw':
-                # NEW APPROACH TRYING AN ITERATION SCHEME
                 if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
                     C_add = C_add_1
-                    #print "I:{0:.2f}".format(C_add[10]),                    
-                    
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
                     # difference for the unfrozen water content.
-                    
-                    #dT = (u-u_1)
                     dudT = (unfrw_u-unfrw_u1)/(u-u_1)
-                    
-                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
-                    #print "*:{0:.2f}".format(C_add[10]),                    
+                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)             
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
-                #print "C:{0:.2f}".format(C_app[10]),
                 
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
@@ -1088,65 +1069,45 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
                 pdb.set_trace()
             
-            # Compute diagonal elements for inner points
-            A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
-            B_m[1:-1] = F*(k_eff[0:-2]+2*k_eff[1:-1]+k_eff[2:])/C_app[1:-1]
-            C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
+            # Calculate the G1 and G2 matrices
+            TMP = solver_time.dt/C_app * (k_eff*Dpp + (Dp*k)*Dp)
+            G1 = 1 - theta * TMP
+            G2 = 1 - (1-theta) * TMP
             
-            # Compute diagonal elements for lower boundary point
-            A_N       = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
-            B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
-            C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
-
+            # Calculate the known vector d
+            d = G2*u_1    # u_1 holds temperatures at time step n
             
-            # Compute sparse matrix (scipy format)
-            diagonal[1:-1] = 1 + theta*B_m[1:-1]
-            lower = -theta*A_m  #1
-            upper = -theta*C_m  #1
+            # Insert upper boundary condition (Dirichlet)
+            G1[0,0] = 1
+            G1[0,1:] = 0
             
-            # Insert boundary conditions (Dirichlet)
-            diagonal[0] = 1
-            upper[0] = 0
+            d[0] = ub(solver_time())    # upper boundary conditions
+            
+            # Insert lower boundary condition
             
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                diagonal[Nx] = 1
-                lower[-1] = 0
+                G1[Nx,Nx] = 1
+                G1[Nx,:-2] = 0
+                d[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
-                diagonal[Nx] = 1
-                lower[-1] = -1
+                G1[Nx,Nx] = 1
+                G1[Nx,Nx-1] = -1
+                b[-1] = dx[-1]*grad
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
-                diagonal[Nx] = 1 + theta*B_N
-                lower[-1] = -theta*(A_N+C_N)  
+                
+                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
+                G1[Nx,:] = Dp[Nx,:]
+                d[-1] = grad
             else:
                 raise ValueError('Unknown lower boundary type')
 
-            U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
-                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
-                                   format='csr')
-            #print A.todense()
-                
-            # Compute known vector
-            b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(solver_time())    # upper boundary conditions
-            
-            # Add lower boundary condition
-            if lb_type == 1:
-                # Dirichlet solution for lower boundary
-                b[-1] = lb(solver_time())  
-            elif lb_type == 2:
-                # First order Neumann solution for lower boundary
-                b[-1] = dx*grad
-            elif lb_type == 3:
-                # First order Neumann solution for lower boundary
-                b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
-            
-            
-            u[:] = scipy.sparse.linalg.spsolve(U, b)
+            # Solve system of equations
+            u[:] = scipy.sparse.linalg.spsolve(U, d)
 
-            
+            # Test for convergence, if necessary, depending of type of model
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
                 convergence = True
@@ -1174,7 +1135,8 @@ def solver_theta_nug(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             u_bak = u.copy()
             
-
+        # Handle time stepping, depending on convergence or not
+        
         if not convergence:
             if not silent:
                 print "No convergence.",
