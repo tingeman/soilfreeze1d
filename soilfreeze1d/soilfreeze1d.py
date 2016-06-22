@@ -955,6 +955,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     Dp = calc_Dp(x) 
     Dpp = calc_Dpp(x) 
     
+    # indexes into diagonal of the different matrices would be [idx[i], idx[i]]
+    idx = np.arange(Nx)
+    
     
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw':
@@ -1018,7 +1021,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         u_bak = u_1 
         
         if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
+            print '{0:6d}, t: {1:10.0f}, dtf: {2}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
@@ -1070,20 +1073,15 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
                 pdb.set_trace()
             
-            # Calculate the G1 and G2 matrices
-            k_eff_diag = scipy.sparse.diags(diagonals=[k_eff],
-                                           offsets=[0], shape=(Nx, Nx),
-                                           format='csr')
+            # Calculate the G1 and G2 matrices            
+            diag_k_eff = scipy.sparse.csr_matrix((k_eff,(idx,idx)),shape=(Nx,Nx))
             
             Dp_dot_k = Dp.dot(k_eff.reshape(-1,1)).squeeze()
-            diag_Dp_dot_k = scipy.sparse.diags(diagonals=[Dp_dot_k],
-                                               offsets=[0], shape=(Nx, Nx),
-                                               format='csr')
-            TMP1 = (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
-            TMP2 = scipy.sparse.diags(diagonals=[(solver_time.dt/C_app).astype(float)],
-                                      offsets=[0], shape=(Nx,Nx),
-                                      format='csr')
             
+            diag_Dp_dot_k = scipy.sparse.csr_matrix((Dp_dot_k,(idx,idx)),shape=(Nx,Nx))
+            
+            TMP1 = (diag_k_eff*Dpp + diag_Dp_dot_k*Dp)
+            TMP2 = scipy.sparse.csr_matrix((float(solver_time.dt)/C_app,(idx,idx)),shape=(Nx,Nx))
             I = scipy.sparse.identity(Nx, dtype='float', format='csr')
             
             #TMP = solver_time.dt/C_app.reshape(-1,1) * (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
@@ -1120,10 +1118,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 d[-1] = grad
             else:
                 raise ValueError('Unknown lower boundary type')
-
+                
             # Solve system of equations
             u[:] = scipy.sparse.linalg.spsolve(G1, d)
 
+            
+            
             # Test for convergence, if necessary, depending of type of model
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
