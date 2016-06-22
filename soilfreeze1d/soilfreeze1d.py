@@ -44,7 +44,7 @@ import os.path
 import fractions
 import numpy as np
 import matplotlib
-matplotlib.use('GTKAgg')
+#matplotlib.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 import scipy.sparse
@@ -929,26 +929,27 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         return scipy.sparse.csr_matrix((val,(row,col)),shape=(N,N))        
     
     
-    raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
+    #raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
     
     tstart = time.clock()
     
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
-    dx = x[1:] - x[0:-2]
+    dx = x[1:] - x[0:-1]
+    Nx = len(x)   # Number of nodes in grid
     
-    u   = np.zeros(Nx+1)   # solution array at t[tid+1]
-    u_1 = np.zeros(Nx+1)   # solution at t[tid]
-    u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
+    u   = np.zeros(Nx)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx)   # solution at t[tid]
+    u_bak = np.zeros(Nx)   # solution at t[tid+1], result from previous iteration
 
-    dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
+    dudT = np.ones(Nx)*-999.   # will hold derivative of unfrozen water
     
     # Representation of right-hand side and unfrozen water contents from two successive calculations
-    d = np.zeros(Nx+1)
+    d = np.zeros(Nx)
     
     # Representation of unfrozen water contents from two successive calculations
-    unfrw_u  = np.zeros(Nx+1)
-    unfrw_u1 = np.zeros(Nx+1)
+    unfrw_u  = np.zeros(Nx)
+    unfrw_u1 = np.zeros(Nx)
 
     # Calculate matrices of lagrange basis polynomial coefficients
     Dp = calc_Dp(x) 
@@ -990,7 +991,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         #n = Layers.pick_values(x, 'n')
     
     # Set initial condition
-    for i in range(0,Nx+1):
+    for i in range(0,Nx):
         u_1[i] = Tinit(x[i])
 
     u = u_1 + 0.001    # initialize u for finite differences
@@ -1070,12 +1071,28 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 pdb.set_trace()
             
             # Calculate the G1 and G2 matrices
-            TMP = solver_time.dt/C_app * (k_eff*Dpp + (Dp*k)*Dp)
-            G1 = 1 - theta * TMP
-            G2 = 1 - (1-theta) * TMP
+            k_eff_diag = scipy.sparse.diags(diagonals=[k_eff],
+                                           offsets=[0], shape=(Nx, Nx),
+                                           format='csr')
+            
+            Dp_dot_k = Dp.dot(k_eff.reshape(-1,1)).squeeze()
+            diag_Dp_dot_k = scipy.sparse.diags(diagonals=[Dp_dot_k],
+                                               offsets=[0], shape=(Nx, Nx),
+                                               format='csr')
+            TMP1 = (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
+            TMP2 = scipy.sparse.diags(diagonals=[(solver_time.dt/C_app).astype(float)],
+                                      offsets=[0], shape=(Nx,Nx),
+                                      format='csr')
+            
+            I = scipy.sparse.identity(Nx, dtype='float', format='csr')
+            
+            #TMP = solver_time.dt/C_app.reshape(-1,1) * (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
+            TMP = TMP2*TMP1
+            G1 = I - theta * TMP
+            G2 = I - (1-theta) * TMP
             
             # Calculate the known vector d
-            d = G2*u_1    # u_1 holds temperatures at time step n
+            d = G2.dot(u_1)    # u_1 holds temperatures at time step n
             
             # Insert upper boundary condition (Dirichlet)
             G1[0,0] = 1
@@ -1087,25 +1104,25 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                G1[Nx,Nx] = 1
-                G1[Nx,:-2] = 0
+                G1[-1,-1] = 1
+                G1[-1,:-2] = 0
                 d[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
-                G1[Nx,Nx] = 1
-                G1[Nx,Nx-1] = -1
-                b[-1] = dx[-1]*grad
+                G1[-1,-1] = 1
+                G1[-1,-2] = -1
+                d[-1] = dx[-1]*grad
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
                 
                 # Use first derivative solution in G1 last row (a'N, b'N, c'N)
-                G1[Nx,:] = Dp[Nx,:]
+                G1[-1,:] = Dp[-1,:]
                 d[-1] = grad
             else:
                 raise ValueError('Unknown lower boundary type')
 
             # Solve system of equations
-            u[:] = scipy.sparse.linalg.spsolve(U, d)
+            u[:] = scipy.sparse.linalg.spsolve(G1, d)
 
             # Test for convergence, if necessary, depending of type of model
             if Layers.parameter_set == 'std':
@@ -1222,7 +1239,7 @@ class Visualizer_T_dT(object):
             plt.figure(self.fig).suptitle(name)        
             
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
 
     def __call__(self, u, x, t):
@@ -1276,7 +1293,7 @@ class Visualizer_T(object):
         self.ax1.axvline(x=0, ls='--', color='k')
         
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
         self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
             
@@ -1292,7 +1309,7 @@ class Visualizer_T(object):
             self.title = plt.figure(self.fig).suptitle(name)        
             
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
 
     def __call__(self, u, x, t):
@@ -1311,8 +1328,18 @@ class Visualizer_T(object):
         
         
     def update(self, u, x, t):
-         self(u, x, t)       
+        self(u, x, t)       
 
+    def add(self, u, x, t, color='b'):
+        plt.figure(self.fig)
+
+        self.ax1.hold(True)            
+        self.ax1.plot(u, x, color+'-', marker='.', ms=5)
+        self.ax1.hold(True)
+        
+        plt.draw()
+        plt.show(block=False)
+    
         
 # --------------------------------------------------------------
 #
