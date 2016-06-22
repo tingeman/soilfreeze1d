@@ -21,10 +21,12 @@ factor of 1.1
 # import standard pythom modules
 import numpy as np
 import pdb
+import warnings
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
                       # modelling code and supporting functions.
+
 
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
@@ -65,8 +67,6 @@ if __name__ == '__main__':
     # Tf:           Freezing point [C]  default = 0C
     # soil_type:    Character string for identification, not used by model
     
-    
-    pdb.set_trace()
     
     # Define model domain properties
     dx0 = 0.05
@@ -123,6 +123,11 @@ if __name__ == '__main__':
         user_action = None
     
     # Call Finite Difference engine    
+    
+    # # upgrade warnings to errors
+    # with warnings.catch_warnings():
+    #     warnings.simplefilter('error')
+    
     u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
                                                  Tinit=initialTemperature, 
                                                  ub=surf_T, lb_type=2, grad=grad,
