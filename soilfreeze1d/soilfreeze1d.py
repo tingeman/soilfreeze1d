@@ -130,7 +130,7 @@ class TimeInterpolator(object):
     time_interp.reset()
     """
 
-    def __init__(self, x, xp, fp):
+    def __init__(self, xp, fp):
         
         self.xp = xp       # interpolation x-values (times)
         self.fp = fp       # interpolation y-values (temperatures)
@@ -279,6 +279,9 @@ class LayeredModel(object):
     _descriptor_unfrw = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
                          'formats': ('f8',      'f8',  'f8',   'f8',   'f8',   'f8',   'f8', 'f8', 'f8', 'S50')}
 
+    _descriptor_unfrw_swi = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha',  'beta',  'Tf', 'Soil_type'), 
+                             'formats': ('f8',      'f8', 'f8',  'f8',  'f8',  'f8',  'f8', 'f8',  'f8',     'f8',    'f8', 'S50')}
+                         
     _descriptor_std =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
                          'formats': ('f8',      'f8', 'f8', 'S50')}
                          
