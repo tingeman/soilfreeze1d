@@ -44,7 +44,7 @@ import os.path
 import fractions
 import numpy as np
 import matplotlib
-matplotlib.use('GTKAgg')
+#matplotlib.use('Qt4Agg')
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pylab
 import scipy.sparse
@@ -817,6 +817,386 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     tstop = time.clock()    
     datafile.add_comment('cpu: {0}'.format(tstop-tstart))
     return u, x, solver_time(), tstop-tstart
+
+
+def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
+                     Tinit=lambda x: -2., 
+                     ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
+                     user_action=None,
+                     outfile='model_result.txt',
+                     outint=1*days,
+                     silent=False):
+    """Full solver for the model problem using the theta based finite difference 
+    approximation. Non Uniform Grid implemented using approximating Lagrange polynomials.
+    Vectorized implementation and sparse (n-diagonal) coefficient matrix.
+    
+    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+    lb_type=2   Neumann type lower boundary condition (specified gradient)    
+    grad        The gradient [K/m] to use for the lower boundary
+    """
+    
+    def calc_Dp(x):
+        """Calculates the square diagonal matrix Dpp used to approximate the first derivative
+        of a function with known values at the points given by the vector x. 
+        The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
+        
+        Arguments:
+        x:  array of node depths
+        
+        Returns:
+        Dp: sparse matrix of Lagrange basis polynomial coefficients
+        """
+        
+        # Since python uses 0-indexing, the variable names and indices
+        # in the code differs from those in the theoretical derivation.
+        
+        N = len(x)
+        h = np.squeeze(x[1:]-x[:N-1]).astype(float)  # ensure that the array is one-dimensional and floating point!
+        
+        # Coefficients of the first row
+        a0 = -(2*h[0]+h[1])/(h[0]*(h[0]+h[1]))
+        b0 = (h[0]+h[1])/(h[0]*h[1]) 
+        c0 = -h[0]/(h[1]*(h[0]+h[1]))
+        
+        # Coefficients of the inner rows (1 to N-1)
+        # The following indicing corresponds to:
+        # h[1:]   =  h_{k+1}
+        # h[:n-2] =  h_k 
+        ak = -h[1:]/(h[:N-2]*(h[:N-2]+h[1:]))
+        bk = (h[1:]-h[:N-2])/(h[:N-2]*h[1:])
+        ck =  h[:N-2]/(h[1:]*(h[:N-2]+h[1:]))
+        
+        # Coefficients of the last row
+        aN = h[-1]/(h[-2]*(h[-1]+h[-2]))
+        bN = -(h[-1]+h[-2])/(h[-1]*h[-2])
+        cN = (2*h[-1]+h[-2])/(h[-1]*(h[-2]+h[-1]))
+        
+        # Staack everything up nicely in a sparse matrix
+        
+        # First create an array of all the values in the matrix
+        val  = np.hstack((a0,ak,aN,b0,bk,bN,c0,ck,cN))
+        # generate the row indices of each element (from 0 to N-1 three times)
+        row = np.tile(np.arange(N),3)
+        # generate the column indices, [0,0,1,...,k,...,N-2,N-1,N-1]
+        dex = np.hstack((0,np.arange(N-2),N-3))
+        col = np.hstack((dex,dex+1,dex+2))
+        
+        # create and return the sparse matrix
+        return scipy.sparse.csr_matrix((val,(row,col)),shape=(N,N))
+
+        
+    def calc_Dpp(x):
+        """Calculates the square diagonal matrix Dpp used to approximate the second derivative
+        of a function with known values at the points given by the vector x. 
+        The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
+        
+        Arguments:
+        x:  array of node depths
+        
+        Returns:
+        Dpp: sparse matrix of Lagrange basis polynomial coefficients
+        
+        NOTICE: The approximation at the boundaries (first and last row) are based on one-sided
+        Lagrange polynomials, and are only first order accurate, whereas the inner rows use
+        centered Lagrange polynomials, and are second order accurate.
+        """
+        
+        # Since python uses 0-indexing, the variable names and indices
+        # in the code differs from those in the theoretical derivation.
+        
+        N = len(x)
+        h = np.squeeze(x[1:]-x[:N-1]).astype(float)  # ensure that the array is one-dimensional and floating point!
+        
+        # Coefficients of the inner rows (1 to N-1)
+        # The following indicing corresponds to:
+        # h[1:]   =  h_{k+1}
+        # h[:n-2] =  h_k 
+        ak = 2/(h[:N-2]*(h[1:]+h[:N-2]))
+        bk = -2/(h[1:]*h[:N-2])
+        ck = 2/(h[1:]*(h[1:]+h[:N-2]))
+        
+        # Staack everything up nicely in a sparse matrix
+        
+        # First create an array of all the values in the matrix
+        val  = np.hstack((ak[0],ak,ak[-1],bk[0],bk,bk[-1],ck[0],ck,ck[-1]))
+        # generate the row indices of each element (from 0 to N-1 three times)
+        row = np.tile(np.arange(N),3)
+        # generate the column indices, [0,0,1,...,k,...,N-2,N-1,N-1]
+        dex = np.hstack((0,np.arange(N-2),N-3))
+        col = np.hstack((dex,dex+1,dex+2))
+        
+        # create and return the sparse matrix
+        return scipy.sparse.csr_matrix((val,(row,col)),shape=(N,N))        
+    
+    
+    #raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
+    
+    tstart = time.clock()
+    
+    L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
+    
+    dx = x[1:] - x[0:-1]
+    Nx = len(x)   # Number of nodes in grid
+    
+    u   = np.zeros(Nx)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx)   # solution at t[tid]
+    u_bak = np.zeros(Nx)   # solution at t[tid+1], result from previous iteration
+
+    dudT = np.ones(Nx)*-999.   # will hold derivative of unfrozen water
+    
+    # Representation of right-hand side and unfrozen water contents from two successive calculations
+    d = np.zeros(Nx)
+    
+    # Representation of unfrozen water contents from two successive calculations
+    unfrw_u  = np.zeros(Nx)
+    unfrw_u1 = np.zeros(Nx)
+
+    # Calculate matrices of lagrange basis polynomial coefficients
+    Dp = calc_Dp(x) 
+    Dpp = calc_Dpp(x) 
+    
+    # indexes into diagonal of the different matrices would be [idx[i], idx[i]]
+    idx = np.arange(Nx)
+    
+    
+    # Get constant layer parameters distributed on the grid
+    if Layers.parameter_set == 'unfrw':
+        if not silent: print "Using unfrozen water parameters"
+        k_th = Layers.pick_values(x, 'k_th')
+        C_th = Layers.pick_values(x, 'C_th')
+        k_fr = Layers.pick_values(x, 'k_fr')
+        C_fr = Layers.pick_values(x, 'C_fr')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'stefan':
+        if not silent: print "Using stefan solution parameters"
+        k_th = Layers.pick_values(x, 'k_th')
+        C_th = Layers.pick_values(x, 'C_th')
+        k_fr = Layers.pick_values(x, 'k_fr')
+        C_fr = Layers.pick_values(x, 'C_fr')
+        n = Layers.pick_values(x, 'n')
+        
+        #interval = Layers.interval
+        #Tf = Layers.Tf
+        interval = Layers.pick_values(x, 'interval')
+        Tf = Layers.pick_values(x, 'Tf')
+    else:
+        if not silent: print "Using standard parameters"
+        k_th = Layers.pick_values(x, 'k')
+        C_th = Layers.pick_values(x, 'C')
+        k_fr = np.nan
+        C_fr = np.nan
+        #n = Layers.pick_values(x, 'n')
+    
+    # Set initial condition
+    for i in range(0,Nx):
+        u_1[i] = Tinit(x[i])
+
+    u = u_1 + 0.001    # initialize u for finite differences
+    
+    if user_action is not None:
+        user_action(u_1, x, t0)
+
+    datafile = FileStorage(outfile, depths=x, 
+                           interval=outint, buffer_size=30)        
+    datafile.add(t0, ub(t0), u)
+       
+    
+    solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
+    iter1 = 0    
+    
+    # Time loop    
+    while solver_time() < t_end:
+        convergence = False        
+        iter1 += 1        
+        
+        # u_1 holds the temperatures at time step n
+        # u   will eventually hold calculated temperatures at step n+1
+        
+        u_bak = u_1 
+        
+        if not silent:
+            print '{0:6d}, t: {1:10.0f}, dtf: {2}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
+        
+        if Layers.parameter_set == 'std':
+            phi = 1.  # for standard solution there is no phase change
+            k_eff = k_th
+            C_eff = C_th
+            unfrw_u1 = 0.
+        else:
+            if Layers.parameter_set == 'unfrw':
+                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            elif Layers.parameter_set == 'stefan':
+                phi = f_phi_stefan(u_1, Tf, interval)
+
+            k_eff = f_k_eff(k_fr, k_th, phi)
+            C_eff = f_C_eff(C_fr, C_th, phi)
+            unfrw_u1 = n*phi
+        
+        
+        if Layers.parameter_set == 'unfrw':
+            maxiter2 = 5
+        else:
+            maxiter2 = 1
+
+        
+        for iter2 in xrange(maxiter2):
+            
+            if Layers.parameter_set == 'unfrw':
+                if iter2 == 0:
+                    # This is first iteration, approximate the latent heat 
+                    # component by the analytical derivative
+                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add = C_add_1
+                else:
+                    # A previous iteration exist, so an estimate of the
+                    # next time step exists. Use that to calculate a finite
+                    # difference for the unfrozen water content.
+                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)             
+            
+                # Apparent heat capacity is the heat capacity + the latent heat effect
+                C_app = C_eff + C_add
+                
+            elif Layers.parameter_set == 'stefan':
+                C_app = np.where(np.logical_and(np.less(u,Tf),np.
+                                                greater_equal(u, Tf-interval)), 
+                                 C_eff + L*n/interval, C_eff)
+            else:
+                C_app = C_eff
+            
+            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
+                pdb.set_trace()
+            
+            # Calculate the G1 and G2 matrices            
+            diag_k_eff = scipy.sparse.csr_matrix((k_eff,(idx,idx)),shape=(Nx,Nx))
+            
+            Dp_dot_k = Dp.dot(k_eff.reshape(-1,1)).squeeze()
+            
+            diag_Dp_dot_k = scipy.sparse.csr_matrix((Dp_dot_k,(idx,idx)),shape=(Nx,Nx))
+            
+            TMP1 = (diag_k_eff*Dpp + diag_Dp_dot_k*Dp)
+            TMP2 = scipy.sparse.csr_matrix((float(solver_time.dt)/C_app,(idx,idx)),shape=(Nx,Nx))
+            I = scipy.sparse.identity(Nx, dtype='float', format='csr')
+            
+            #TMP = solver_time.dt/C_app.reshape(-1,1) * (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
+            TMP = TMP2*TMP1
+            G1 = I - theta * TMP
+            G2 = I - (1-theta) * TMP
+            
+            # Calculate the known vector d
+            d = G2.dot(u_1)    # u_1 holds temperatures at time step n
+            
+            # Insert upper boundary condition (Dirichlet)
+            G1[0,0] = 1
+            G1[0,1:] = 0
+            
+            d[0] = ub(solver_time())    # upper boundary conditions
+            
+            # Insert lower boundary condition
+            
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,:-2] = 0
+                d[-1] = lb(solver_time())  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,-2] = -1
+                d[-1] = dx[-1]*grad
+            elif lb_type == 3:
+                # Second order Neumann solution for lower boundary
+                
+                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
+                G1[-1,:] = Dp[-1,:]
+                d[-1] = grad
+            else:
+                raise ValueError('Unknown lower boundary type')
+                
+            # Solve system of equations
+            u[:] = scipy.sparse.linalg.spsolve(G1, d)
+
+            
+            
+            # Test for convergence, if necessary, depending of type of model
+            if Layers.parameter_set == 'std':
+                unfrw_u = 0.
+                convergence = True
+            else:
+                if Layers.parameter_set == 'unfrw':
+                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                    unfrw_u = n*phi_u    
+                    
+                    if iter2 != 0:       # Always do at least 1 iteration
+                        change = (u-u_bak)/u_bak
+                        if not silent:
+                            print "{0:.8f}%".format(np.max(change)*100),
+            
+                        if np.max(change) < 0.00001:
+                            # break iteration loop since no significant change in 
+                            # temperature is observed.
+                            convergence = True
+                            u_bak = u.copy()
+                            break    
+                    
+                elif Layers.parameter_set == 'stefan':
+                    phi_u = f_phi_stefan(u, Tf, interval)
+                    unfrw_u = n*phi_u
+                    convergence = True
+            
+            u_bak = u.copy()
+            
+        # Handle time stepping, depending on convergence or not
+        
+        if not convergence:
+            if not silent:
+                print "No convergence.",
+            success = solver_time.decrease_step()
+            # We decrease time step, because we did not see
+            # sufficient improvement within maxiter2 iterations.
+            # Since solver_time is optimistic, it will automatically
+            # increase time step gradually.
+            
+            # If success is False, we have reached the minimum time step.            
+            
+            # do not step forward in time, we need to recalculate for time n+dt
+            
+            if success:
+                if not silent:
+                    print "dt reduced."
+            else:
+                if not silent: 
+                    print "Reduction impossible.",
+
+        if convergence or not success:
+            # We had convergence, prepare for next time step.             
+            if not silent: 
+                print "Done! {0:d} iters".format(iter2)
+            
+            solver_time.step()        
+            
+            u[0] = ub(solver_time())            
+            if user_action is not None:
+                user_action(u, x, solver_time())
+    
+            datafile.add(solver_time(), ub(solver_time()), u)
+            
+            u_1, u = u, u_1
+    
+    datafile.flush()
+    tstop = time.clock()    
+    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    return u, x, solver_time(), tstop-tstart
+
+    
+    
+
     
 
 class Visualizer_T_dT(object):
@@ -859,7 +1239,7 @@ class Visualizer_T_dT(object):
             plt.figure(self.fig).suptitle(name)        
             
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
 
     def __call__(self, u, x, t):
@@ -913,7 +1293,7 @@ class Visualizer_T(object):
         self.ax1.axvline(x=0, ls='--', color='k')
         
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
         self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
             
@@ -929,7 +1309,7 @@ class Visualizer_T(object):
             self.title = plt.figure(self.fig).suptitle(name)        
             
         plt.draw()
-        plt.show()
+        plt.show(block=False)
 
 
     def __call__(self, u, x, t):
@@ -948,8 +1328,18 @@ class Visualizer_T(object):
         
         
     def update(self, u, x, t):
-         self(u, x, t)       
+        self(u, x, t)       
 
+    def add(self, u, x, t, color='b'):
+        plt.figure(self.fig)
+
+        self.ax1.hold(True)            
+        self.ax1.plot(u, x, color+'-', marker='.', ms=5)
+        self.ax1.hold(True)
+        
+        plt.draw()
+        plt.show(block=False)
+    
         
 # --------------------------------------------------------------
 #
