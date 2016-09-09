@@ -272,28 +272,15 @@ class FileStorage(object):
         self.count = 0
         # file is automatically closed when using the "with .. as" construct
 
-
-
-
+        
 class LayeredModel(object):
-    _descriptor_unfrw = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
-                         'formats': ('f8',      'f8',  'f8',   'f8',   'f8',   'f8',   'f8', 'f8', 'f8', 'S50')}
+    _descriptor =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
+                     'formats': ('f8',      'f8', 'f8', 'S50')}
 
-    _descriptor_std =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
-                         'formats': ('f8',      'f8', 'f8', 'S50')}
-                         
-    _descriptor_stefan = {'names': ('Thickness', 'n',  'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'), 
-                          'formats': ('f8',      'f8', 'f8',   'f8',   'f8',   'f8',   'f8', 'f8',       'S50')}
-                         
-    def __init__(self, type='stefan', surface_z=0., interval=1, Tf=0.):
+    def __init__(self, type='std', surface_z=0., **kwargs):
         self._layers = None
         self.parameter_set = type
-        self._descriptor = getattr(self, '_descriptor_'+type)
-        self.surface_z = surface_z  # z-axis is positive down!
-        if type=='stefan':
-            self.interval = interval
-            self.Tf = Tf
-            
+        self.surface_z = surface_z  # z-axis is positive down!            
     
     def add(self, **kwargs):
         if self._layers is None:
@@ -310,7 +297,6 @@ class LayeredModel(object):
                 self._layers[-1][k] = v
             except:
                 pass
-
 
     # Layers[n] should return an ordered dictionary of all parameters for layer n
     # Layers.C_th should return an array of C_th for all layers
@@ -330,8 +316,7 @@ class LayeredModel(object):
         if attr == 'z_max':
             return self.surface_z+np.sum(self._layers['Thickness'])
         elif attr in self._descriptor['names']:
-            return self._layers[attr]
-            
+            return self._layers[attr]            
         else:
             raise ValueError('No such attribute defined')
     
@@ -364,7 +349,48 @@ class LayeredModel(object):
                 
         return result
     
+    def show(self, T1=-10, T2=2, fig=None):
+        raise NotImplementedError('Visualization of standard model not yet implemented')
+
+    def f_unfrw_fraction(**kwargs):
+        raise NotImplementedError('Unfrozen water is not implemented for standard model')
     
+    def f_unfrozen_water(**kwargs):
+        raise NotImplementedError('Unfrozen water is not implemented for standard model')
+    
+    def f_k_eff(k, **kwargs):
+        return k
+    
+    def f_C_eff(C, **kwargs):
+        return C
+
+
+
+# change unfrw_swi model so that:
+# 1) you fix the grid using set_grid method
+# 2) this triggers the generation of C_s, C_w etc arrays, holding values for each grid point
+# 3) f_xxxxxx methods use these precalculated arrays in the calculation of effective parameters
+
+# The idea is to make the solver completely unaware of the type of layered model, and thus how effective parameters are calculated.
+# so the code in the solver can be generic and independent of the parameters used in the layered model.        
+
+# It will be difficult to make it unaware of unfrozen water, as the iterative scheme is
+# based on convergence of the unfrozen water calculation...
+# could maybe put the convergence criteria in a LayeredModel method...
+# but that does not observe the single responsibility concept...
+
+# Could also make a separate Convergence class, which would handle all
+# about convergence tests and keep track of iterations and when to 
+# step time or change time step...
+        
+class LayeredModel_unfrw_swi(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha', 'beta', 'Tf', 'Soil_type'), 
+                   'formats': ('f8',      'f8', 'f8', 'f8',  'f8',  'f8',  'f8',  'f8',  'f8',    'f8',   'f8', 'S50')}
+                         
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'unfrw_cfi'
+        super(DataStore, self).__init__(**kwargs)
+            
     def show(self, T1=-10, T2=2, fig=None):
         
         # allow a maximum of five layers for plotting
@@ -399,33 +425,190 @@ class LayeredModel(object):
             # Create axis for unfrozen water plot
             axes.append(plt.subplot2grid((nlayers,2), (n,1)))
             
-            # Select type of unfrozen water
-            if self.parameter_set == 'unfrw':
-                # unfrw = n*a*|T-Tf|**-b
-                Tstar = f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
-                unfrw = f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
-                                         self[n]['Tf'], Tstar, self[n]['n'])
-            elif self.parameter_set == 'stefan':
-                # unfrozen water is linear between Tf-interfal and Tf
-                #phi = np.ones_like(T)*np.nan
-                #phi[T>self[n]['Tf']] = 1.0  # The 1.0 is the water saturation
-                #phi[T<=self[n]['Tf']-self[n]['interval']] = 0.0  # No unfrozen water
-                #phi = np.where(np.isnan(phi), self[n]['interval']*T+1, phi)
-                phi = f_phi_stefan(T, self[n]['Tf'], self[n]['interval'])
-                unfrw = phi*self[n]['n']
-
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
+                                          self[n]['Tf'], Tstar, self[n]['n'])
+                                     
             axes[-1].plot(T,unfrw,'-k')
             axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
             
         plt.draw()        
         plt.show()
         
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        return Tf-np.power((S_w/a),(-1/b))
+            
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                             a*np.power(np.abs(T-Tf),-b),
+                             np.ones_like(T)*S_w)
+
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
+
+    def f_k_eff(self, k_s, k_w, k_i, n, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_s**(1-n)*k_w**(n*phi)*k_i**(n*(1-phi))        
+
+    def f_C_eff(self, C_s, C_w, C_i, n, phi):
+        """Calculates the effective heat capacity []."""
+        return C_s*(1-n) + C_f*(n*phi) + C_t*(n*(1-phi))
+        
     
-    # DONE: Add method to retrieve all parameters for a specific layers    
-    # DONE: Add method to calculate the grid point values of a specified parameter, given an array of gridpoint depths.    
-    # Add method to visualize the layered model somehow (including the unfrozen water content curve...)
+class LayeredModel_unfrw_thfr(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
+                   'formats': ('f8',      'f8',  'f8',   'f8',   'f8',   'f8',   'f8', 'f8', 'f8', 'S50')}
+                         
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'unfrw_thfr'
+        super(DataStore, self).__init__(**kwargs)
+            
+    def show(self, T1=-10, T2=2, fig=None):
+        
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+        
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure() # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+        
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers,2), (0,0), rowspan=nlayers)
 
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1,T2,300)
+        
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
+        
+        # loop over all layers
+        for n in xrange(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])            
+            ax1.invert_yaxis()
+            
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers,2), (n,1)))
+            
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
+                                          self[n]['Tf'], Tstar, self[n]['n'])
+                                     
+            axes[-1].plot(T,unfrw,'-k')
+            axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
+            
+        plt.draw()        
+        plt.show()
+        
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        return Tf-np.power((S_w/a),(-1/b))
+            
+    def f_phi_unfrw(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                             a*np.power(np.abs(T-Tf),-b),
+                             np.ones_like(T)*S_w)
 
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_phi_unfrw(T, a, b, Tf, Tstar, S_w) * n
+
+    def f_k_eff(self, k_f, k_t, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_f**(1-phi)*k_t**(phi)        
+
+    def f_C_eff(self, C_f, C_t, phi):
+        """Calculates the effective heat capacity []."""
+        return C_f*(1-phi)+C_t*(phi)          
+                             
+
+class LayeredModel_stefan(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n',  'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'), 
+                   'formats': ('f8',      'f8', 'f8',   'f8',   'f8',   'f8',   'f8', 'f8',       'S50')}
+                         
+    def __init__(self, interval=1, Tf=0., **kwargs):
+        kwargs['type'] = 'stefan'
+        super(DataStore, self).__init__(**kwargs)
+        self.interval = interval
+        self.Tf = Tf
+            
+    def show(self, T1=-10, T2=2, fig=None):
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+        
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure() # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+        
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers,2), (0,0), rowspan=nlayers)
+
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1,T2,300)
+        
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
+        
+        # loop over all layers
+        for n in xrange(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])            
+            ax1.invert_yaxis()
+            
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers,2), (n,1)))
+            
+            # unfrozen water is linear between Tf-interfal and Tf
+            phi = self.f_unfrw_fraction(T, self[n]['Tf'], self[n]['interval'])
+            unfrw = phi*self[n]['n']
+                                     
+            axes[-1].plot(T,unfrw,'-k')
+            axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
+            
+        plt.draw()        
+        plt.show()
+        
+    def f_unfrw_fraction(self, T, Tf, interval):
+        """Calculates the unfrozen water fraction."""
+        # unfrozen water is linear between Tf-interfal and Tf
+        phi = np.ones_like(T)*np.nan
+        phi[np.greater(T,Tf)] = 1.0              # The 1.0 is the water saturation
+        phi[np.less_equal(T,Tf-interval)] = 0.0  # No unfrozen water
+        return np.where(np.isnan(phi), interval*T+1, phi)
+
+    def f_unfrozen_water(self, T, Tf, interval, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_phi_unfrw(T, Tf, interval) * n
+
+    def f_k_eff(self, k_f, k_t, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_f**(1-phi)*k_t**(phi)        
+
+    def f_C_eff(self, C_f, C_t, phi):
+        """Calculates the effective heat capacity []."""
+        return C_f*(1-phi)+C_t*(phi)
+        
+        
 class SolverTime(object):
     """Class that handles adaptive time stepping for finite difference solver.
     """
@@ -1341,37 +1524,8 @@ class Visualizer_T(object):
         plt.show(block=False)
     
         
-# --------------------------------------------------------------
-#
-# Calculation of unfrozen water content
-#
-# --------------------------------------------------------------    
 
-def f_Tstar(Tf, S_w, a, b):
-    """Calculation of the effective freezing point, T_star."""
-    return Tf-np.power((S_w/a),(-1/b))
-        
-        
-def f_phi_unfrw(T, a, b, Tf, Tstar, S_w):
-    """Calculates the unfrozen water fraction."""
-    return np.where(T < Tstar,
-                         a*np.power(np.abs(T-Tf),-b),
-                         np.ones_like(T)*S_w)
-
-
-def f_phi_stefan(T, Tf, interval):
-    """Calculates the unfrozen water fraction."""
-    # unfrozen water is linear between Tf-interfal and Tf
-    phi = np.ones_like(T)*np.nan
-    phi[np.greater(T,Tf)] = 1.0              # The 1.0 is the water saturation
-    phi[np.less_equal(T,Tf-interval)] = 0.0  # No unfrozen water
-    return np.where(np.isnan(phi), interval*T+1, phi)
     
-                         
-def f_unfrozen_water(T, a, b, Tf, Tstar, n, S_w=1.0):
-    """Calculates the unfrozen water content [m^3/m^3]."""
-    return f_phi_unfrw(T, a, b, Tf, Tstar, S_w) * n
-
 # --------------------------------------------------------------
 #
 # Calculation of thermal conductivities
@@ -1387,11 +1541,6 @@ def f_unfrozen_water(T, a, b, Tf, Tstar, n, S_w=1.0):
 #    """Calculates the thawed thermal conductivity []."""
 #    return k_s**(1-n)*k_w**(n)
     
-    
-def f_k_eff(k_f, k_t, phi):
-    """Calculates the effective thermal conductivity []."""
-    return k_f**(1-phi)*k_t**(phi)
-    
 
 # --------------------------------------------------------------
 #
@@ -1399,11 +1548,6 @@ def f_k_eff(k_f, k_t, phi):
 #
 # --------------------------------------------------------------        
 
-def f_C_eff(C_f, C_t, phi):
-    """Calculates the effective heat capacity []."""
-    return C_f*(1-phi)+C_t*(phi)    
-
-    
 #def f_C_f(C_s, C_i, n):
 #    """Calculates the frozen heat capacity []."""
 #    return C_s*(1-n)+C_i*(n)
