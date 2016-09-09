@@ -271,7 +271,6 @@ class FileStorage(object):
                 f.write('\n')
         self.count = 0
         # file is automatically closed when using the "with .. as" construct
-
         
 class LayeredModel(object):
     _descriptor =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
@@ -388,8 +387,8 @@ class LayeredModel_unfrw_swi(LayeredModel):
                    'formats': ('f8',      'f8', 'f8', 'f8',  'f8',  'f8',  'f8',  'f8',  'f8',    'f8',   'f8', 'S50')}
                          
     def __init__(self, **kwargs):
-        kwargs['type'] = 'unfrw_cfi'
-        super(DataStore, self).__init__(**kwargs)
+        kwargs['type'] = 'unfrw_swi'
+        super(LayeredModel_unfrw_swi, self).__init__(**kwargs)
             
     def show(self, T1=-10, T2=2, fig=None):
         
@@ -465,7 +464,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
                          
     def __init__(self, **kwargs):
         kwargs['type'] = 'unfrw_thfr'
-        super(DataStore, self).__init__(**kwargs)
+        super(LayeredModel_unfrw_thfr, self).__init__(**kwargs)
             
     def show(self, T1=-10, T2=2, fig=None):
         
@@ -516,7 +515,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         """Calculation of the effective freezing point, T_star."""
         return Tf-np.power((S_w/a),(-1/b))
             
-    def f_phi_unfrw(self, T, a, b, Tf, Tstar, S_w):
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
         """Calculates the unfrozen water fraction."""
         return np.where(T < Tstar,
                              a*np.power(np.abs(T-Tf),-b),
@@ -524,7 +523,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
 
     def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
         """Calculates the unfrozen water content [m^3/m^3]."""
-        return self.f_phi_unfrw(T, a, b, Tf, Tstar, S_w) * n
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
 
     def f_k_eff(self, k_f, k_t, phi):
         """Calculates the effective thermal conductivity []."""
@@ -541,7 +540,7 @@ class LayeredModel_stefan(LayeredModel):
                          
     def __init__(self, interval=1, Tf=0., **kwargs):
         kwargs['type'] = 'stefan'
-        super(DataStore, self).__init__(**kwargs)
+        super(LayeredModel_stefan, self).__init__(**kwargs)
         self.interval = interval
         self.Tf = Tf
             
@@ -608,6 +607,15 @@ class LayeredModel_stefan(LayeredModel):
         """Calculates the effective heat capacity []."""
         return C_f*(1-phi)+C_t*(phi)
         
+
+def new_layered_model(type='', **kwargs):
+    """Function to instantiate a layered model based on the type passed."""
+    
+    if type != '':
+        return globals()['LayeredModel_'+type](**kwargs)
+    else:
+        return LayeredModel(**kwargs)
+    
         
 class SolverTime(object):
     """Class that handles adaptive time stepping for finite difference solver.
@@ -750,7 +758,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     unfrw_u1 = np.zeros(Nx+1)
 
     # Get constant layer parameters distributed on the grid
-    if Layers.parameter_set == 'unfrw':
+    if Layers.parameter_set == 'unfrw_thfr':
         if not silent: print "Using unfrozen water parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
@@ -762,7 +770,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -819,20 +827,20 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             C_eff = C_th
             unfrw_u1 = 0.
         else:
-            if Layers.parameter_set == 'unfrw':
-                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
             elif Layers.parameter_set == 'stefan':
-                phi = f_phi_stefan(u_1, Tf, interval)
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = f_k_eff(k_fr, k_th, phi)
-            C_eff = f_C_eff(C_fr, C_th, phi)
+            k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+            C_eff = Layers.f_C_eff(C_fr, C_th, phi)
             unfrw_u1 = n*phi
         
         
         F = solver_time.dt/(2*dx**2)        
 
 
-        if Layers.parameter_set == 'unfrw':
+        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
             maxiter2 = 5
         else:
             maxiter2 = 1
@@ -840,7 +848,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         
         for iter2 in xrange(maxiter2):
             
-            if Layers.parameter_set == 'unfrw':
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 # NEW APPROACH TRYING AN ITERATION SCHEME
                 if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
@@ -937,8 +945,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 unfrw_u = 0.
                 convergence = True
             else:
-                if Layers.parameter_set == 'unfrw':
-                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
                     if iter2 != 0:       # Always do at least 1 iteration
@@ -954,7 +962,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                             break    
                     
                 elif Layers.parameter_set == 'stefan':
-                    phi_u = f_phi_stefan(u, Tf, interval)
+                    phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
                     convergence = True
             
@@ -1155,7 +1163,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -1213,12 +1221,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             unfrw_u1 = 0.
         else:
             if Layers.parameter_set == 'unfrw':
-                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
             elif Layers.parameter_set == 'stefan':
-                phi = f_phi_stefan(u_1, Tf, interval)
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = f_k_eff(k_fr, k_th, phi)
-            C_eff = f_C_eff(C_fr, C_th, phi)
+            k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+            C_eff = Layers.f_C_eff(C_fr, C_th, phi)
             unfrw_u1 = n*phi
         
         
@@ -1313,7 +1321,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 convergence = True
             else:
                 if Layers.parameter_set == 'unfrw':
-                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
                     if iter2 != 0:       # Always do at least 1 iteration
@@ -1329,7 +1337,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                             break    
                     
                 elif Layers.parameter_set == 'stefan':
-                    phi_u = f_phi_stefan(u, Tf, interval)
+                    phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
                     convergence = True
             
