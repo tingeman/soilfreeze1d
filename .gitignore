@@ -42,3 +42,4 @@ _ReSharper*/
 .idea/
 
 #project specific
+*.txt
