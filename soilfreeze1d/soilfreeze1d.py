@@ -455,7 +455,7 @@ class LayeredModel_unfrw_swi(LayeredModel):
 
     def f_C_eff(self, C_s, C_w, C_i, n, phi):
         """Calculates the effective heat capacity []."""
-        return C_s*(1-n) + C_f*(n*phi) + C_t*(n*(1-phi))
+        return C_s*(1-n) + C_w*(n*phi) + C_i*(n*(1-phi))
         
     
 class LayeredModel_unfrw_thfr(LayeredModel):
@@ -771,6 +771,21 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'unfrw_swi':
+        if not silent: print "Using unfrozen water parameters"
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)        
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -827,14 +842,26 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             C_eff = C_th
             unfrw_u1 = 0.
         else:
-            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+            if Layers.parameter_set == 'unfrw_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
+                
+            elif Layers.parameter_set == 'unfrw_swi':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
+                unfrw_u1 = n*phi
+                
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = Layers.f_k_eff(k_fr, k_th, phi)
-            C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-            unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
         
         
         F = solver_time.dt/(2*dx**2)        
@@ -1151,8 +1178,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     
     
     # Get constant layer parameters distributed on the grid
-    if Layers.parameter_set == 'unfrw':
-        if not silent: print "Using unfrozen water parameters"
+    if Layers.parameter_set == 'unfrw_thfr':
+        if not silent: print "Using unfrozen water parameters (th/fr)"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -1164,6 +1191,21 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'unfrw_swi':
+        if not silent: print "Using unfrozen water parameters (swi)"
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)  
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -1220,17 +1262,29 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             C_eff = C_th
             unfrw_u1 = 0.
         else:
-            if Layers.parameter_set == 'unfrw':
+            if Layers.parameter_set == 'unfrw_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
+                
+            elif Layers.parameter_set == 'unfrw_swi':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
+                unfrw_u1 = n*phi
+                
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = Layers.f_k_eff(k_fr, k_th, phi)
-            C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-            unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
         
         
-        if Layers.parameter_set == 'unfrw':
+        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
             maxiter2 = 5
         else:
             maxiter2 = 1
@@ -1238,7 +1292,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         
         for iter2 in xrange(maxiter2):
             
-            if Layers.parameter_set == 'unfrw':
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
@@ -1320,7 +1374,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 unfrw_u = 0.
                 convergence = True
             else:
-                if Layers.parameter_set == 'unfrw':
+                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
