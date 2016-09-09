@@ -6,9 +6,7 @@ Created on Wed Apr 20 01:06:32 2016
 """
 
 # import standard pythom modules
-import pdb
 import numpy as np
-
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
@@ -16,6 +14,22 @@ import soilfreeze1d   # import the module containing the Finite Difference
 
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
+hours = 1*3600
+
+# Define any supporting functions
+
+def initialTemperature(z):
+    """A function used to set up the initial condition in the model domain.
+    The finite difference algorithm needs a starting temperature at each node,
+    and will call this this function with an array of node depths (z) expecting
+    in return an array of equal shape (length) containing the initial temperature
+    at each node location.
+    
+    This function will return a constant temperature, independent of the node
+    location.
+    """
+    constant_temperature = -2.
+    return np.ones_like(z)*constant_temperature
 
 
 
@@ -24,8 +38,10 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='stefan')
-    Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
+    Layers = soilfreeze1d.new_layered_model(type='unfrw_swi')
+    Layers.add(Thickness= 3,  n=0.6, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
+    Layers.add(Thickness=28,  n=0.3, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
+    
     
     # Thickness:    Thickness of the layer [m]
     # n:            Porosity [-]   Soil is considered fully saturated
@@ -39,21 +55,11 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    Nx = 200        # The number of nodes in the model domain is Nx+1
-    dt = 0.5*days   # The calculation time step
-    T = 365*days    # The total calculation period
-
-    # Define initial condition (temperatures in domain)
-    initialTemperature = soilfreeze1d.DistanceInterpolator(depths=[0,15,30], temperatures=[-2,-2,-1])
-    # Here we defined a piece-wise linear temperature profile with temperature
-    # -2C at top of model (0 m) to center of model (15 m), increasing to  -1C 
-    # at bottom of model (30 m).
+    Nx = 400        # The number of nodes in the model domain is Nx+1
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
     
-    # This method could be used to feed the result of a previous calculation
-    # as initial condition for a new calculation.
-    # Keep in mind also to ensure that the upper boundary temperature is 
-    # consisten (continuous) between the two model runs...
-    
+    dt = 24*hours   # The calculation time step
+    T = 2*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
@@ -68,11 +74,11 @@ if __name__ == '__main__':
                     # time step will be plotted.
     
     Tmin = -11      # The minimum value on the temperature axis
-    Tmax = +9       # The maximum value on the temperature axis
-    z_max = 30      # Maximum plot depth on the z-axis    
+    Tmax = +9      # The maximum value on the temperature axis
+    z_max = 10      # Maximum plot depth on the z-axis    
     
     # Set up result output 
-    outfile = 'model2_results.txt' # Name of the result file
+    outfile = 'model6_results.txt' # Name of the result file
     outint = 1*days  # The interval at which results will be written to the file    
     
     
@@ -82,7 +88,7 @@ if __name__ == '__main__':
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
-    
+        
     # Switch animation on or off
     if animate:
         user_action = plot_solution
@@ -97,8 +103,15 @@ if __name__ == '__main__':
                                              outfile=outfile,
                                              outint=outint)
     
+    # This call is to use the non-uniform grid solver. Strangely, it is much slower???    
+    #u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
+    #                                         Tinit=initialTemperature, 
+    #                                         ub=surf_T, lb_type=2, grad=grad,
+    #                                         user_action=user_action,
+    #                                         outfile=outfile,
+    #                                         outint=outint)
+    
     # plot final result
     plot_solution.update(u, x, t)
     
-    # Print the time spent
-    print 'CPU time: {0:.3f} s'.format(cpu)
+    print 'CPU time:', cpu

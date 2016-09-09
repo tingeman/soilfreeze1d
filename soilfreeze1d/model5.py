@@ -19,6 +19,7 @@ import soilfreeze1d   # import the module containing the Finite Difference
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
 hours = 1*3600
+minutes = 1*60
 
 # Define any supporting functions
 
@@ -42,7 +43,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='unfrw')
+    Layers = soilfreeze1d.new_layered_model(type='unfrw_thfr')
     Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     
@@ -191,21 +192,43 @@ if __name__ == '__main__':
         m = ['s','d']
         c = ['b','g']
         
+        lb_scheme = ['Backward Euler', 'Cranck-Nicholson']
+        lb_dtmin  = ['dt_min=1s', 'dt_min=360s']
+        
         for sid,scheme in enumerate(['BE', 'CN']):
             for did,dt_min in enumerate([1,360]):
-                xdat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dt']/(1*hours)
+                xdat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dt']/(1*minutes)
                 ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_max']
-                ax1.plot(xdat, ydat, marker=m[sid], color=c[did])
+                ax1.plot(xdat, ydat, marker=m[sid], color=c[did], label=lb_scheme[sid]+', '+lb_dtmin[did])
                 
                 ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_min']
-                ax2.plot(xdat, ydat, marker=m[sid], color=c[did])
+                ax2.plot(xdat, ydat, marker=m[sid], color=c[did], label=lb_scheme[sid]+', '+lb_dtmin[did])
 
                 ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['dT_avg']
-                ax3.plot(xdat, ydat, marker=m[sid], color=c[did])
+                ax3.plot(xdat, ydat, marker=m[sid], color=c[did], label=lb_scheme[sid]+', '+lb_dtmin[did])
 
                 ydat = params[np.logical_and(params['scheme'] == scheme, params['dt_min'] == dt_min)]['cpu']
-                ax4.loglog(xdat, ydat, marker=m[sid], color=c[did])                
+                ax4.loglog(xdat, ydat, marker=m[sid], color=c[did], label=lb_scheme[sid]+', '+lb_dtmin[did])                
                 
+        ax1.set_title('Referece: Cranck-Nicholson, dt_max=1h, dt_min=1s')        
+        ax1.set_xlabel('Maximum time step [min]')
+        ax1.set_ylabel('Maximum temperature difference [C]')
+        ax1.legend(loc=0)
+        
+        ax2.set_title('Referece: Cranck-Nicholson, dt_max=1h, dt_min=1s')        
+        ax2.set_xlabel('Mmaximum time step [min]')
+        ax2.set_ylabel('Minimum temperature difference [C]')
+        ax2.legend(loc=0)
+        
+        ax3.set_title('Referece: Cranck-Nicholson, dt_max=1h, dt_min=1s')        
+        ax3.set_xlabel('Maximum time step [min]')
+        ax3.set_ylabel('Average temperature difference [C]')
+        ax3.legend(loc=0)
+              
+        ax4.set_xlabel('Maximum time step [min]')
+        ax4.set_ylabel('Calculation time [s]')
+        ax4.legend(loc=0)
+        
         plt.show()
         1/0
 
