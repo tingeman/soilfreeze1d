@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan')
     Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
     
     # Thickness:    Thickness of the layer [m]
@@ -98,7 +98,7 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     # Print the time spent
     print 'CPU time: {0:.3f} s'.format(cpu)
