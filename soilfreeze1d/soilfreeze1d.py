@@ -118,7 +118,7 @@ class TimeInterpolator(object):
     Usage:
     
     # Initialization
-    time_interp = TimeInterpolator(0, times, temperatures)
+    time_interp = TimeInterpolator(times, temperatures)
     
     # Get interpolated temperature at t=27.15
     time_interp(27.15)
@@ -130,7 +130,7 @@ class TimeInterpolator(object):
     time_interp.reset()
     """
 
-    def __init__(self, x, xp, fp):
+    def __init__(self, xp, fp, x=0):
         
         self.xp = xp       # interpolation x-values (times)
         self.fp = fp       # interpolation y-values (temperatures)
