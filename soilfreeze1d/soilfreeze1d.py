@@ -41,7 +41,9 @@ store solutions, etc.
 import pdb
 import time
 import os.path
+import warnings
 import fractions
+import decimal
 import numpy as np
 import matplotlib
 #matplotlib.use('Qt4Agg')
@@ -622,7 +624,9 @@ class SolverTime(object):
     """
     
     def __init__(self, t0, dt, dt_min=360, optimistic=False):
-        self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = decimal.Decimal(round(t0, 8))
+        self.time = np.float64(t0)
         self.previous_time = None
         self.dt_max = fractions.Fraction(dt).limit_denominator()
         self.dt_min = dt_min
@@ -643,6 +647,10 @@ class SolverTime(object):
         time step.)
         
         """
+        
+        #if self.time == 33570196.875:
+        #    pdb.set_trace()
+        
         if self.optimistic and self._o_counter > 1:
             # If we are allowed to be optimistic, set step-up flag if the
             # last two steps did not result in a step size decrease.
@@ -888,12 +896,22 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
                     # difference for the unfrozen water content.
+
+                    # The latent heat contribution is estimated based on
+                    # a finite difference, where the temperature change
+                    # is non-zero, and the slope of the unfrozen water
+                    # content curve where the temperature change is
+                    # exactly zero (produces infinite result the finite
+                    # difference).
                     
                     #dT = (u-u_1)
-                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
                     
+                    # Temporarily ignore division by zero warning.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                                        
                     C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
-                    #print "*:{0:.2f}".format(C_add[10]),                    
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
@@ -977,11 +995,36 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     unfrw_u = n*phi_u    
                     
                     if iter2 != 0:       # Always do at least 1 iteration
-                        change = (u-u_bak)/u_bak
+                        conv_type = 4
+                        
+                        if conv_type == 1:
+                            change = (u-u_bak)/u_bak
+                        elif conv_type == 2:
+                            change = np.abs((u-u_bak)/u_bak)
+                        elif conv_type == 3:
+                            change = np.abs((u-u_bak)/(u_bak+273.15))    # Using Kelvin in denominator to avoid division warning.
+                        elif conv_type == 4:
+                            change = np.abs(u-u_bak)    # using absolute change in temperature
+                        
+                        #change = np.abs((u-u_bak)/u_bak)
+                        
+                        
                         if not silent:
-                            print "{0:.8f}%".format(np.max(change)*100),
-            
-                        if np.max(change) < 0.00001:
+                            if conv_type in [1,2,3]:
+                                print "{0:.8f}%".format(np.max(change)*100),
+                            elif conv_type in [4]:
+                                print "{0:.8f}C".format(np.max(change)),
+                            #print "{0:.8f}%".format(np.max(change)*100),
+                            
+                        if conv_type in [1,2]:
+                            conv_threshold = 0.00001
+                        elif conv_type == 3:
+                            conv_threshold = 0.00000001
+                        elif conv_type == 4:
+                            conv_threshold = 0.001/100
+                            
+                        if np.max(change) < conv_threshold:
+                        #if np.max(change) < 0.00001:
                             # break iteration loop since no significant change in 
                             # temperature is observed.
                             convergence = True
@@ -999,7 +1042,19 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         if not convergence:
             if not silent:
                 print "No convergence.",
+                
+            pre_time = solver_time()
             success = solver_time.decrease_step()
+            post_time = solver_time()
+            
+            if solver_time() < 0:
+                print '' 
+                print 'Problem .....!'
+                print pre_time
+                print post_time
+                return
+                
+            
             # We decrease time step, because we did not see
             # sufficient improvement within maxiter2 iterations.
             # Since solver_time is optimistic, it will automatically
@@ -1021,7 +1076,16 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(iter2)
             
-            solver_time.step()        
+            pre_time = solver_time()
+            solver_time.step()
+            post_time = solver_time()
+
+            if solver_time() < 0:
+                print '' 
+                print 'Problem .....!'
+                print pre_time
+                print post_time
+                return
             
             u[0] = ub(solver_time())            
             if user_action is not None:
