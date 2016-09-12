@@ -139,7 +139,7 @@ if __name__ == '__main__':
             dict(scheme='CN', dt=20*hours, dt_min=360, theta=0.5, outfile='model5_20h-6m_CN.txt', cpu=None),
             dict(scheme='CN', dt=24*hours, dt_min=360, theta=0.5, outfile='model5_24h-6m_CN.txt', cpu=None)]
             
-    if False:
+    if True:
         for rid, run in enumerate(runs):
             # Call Finite Difference engine    
             print "Running {0}   ".format(run['outfile']),
