@@ -610,6 +610,64 @@ class LayeredModel_stefan(LayeredModel):
         return C_f*(1-phi)+C_t*(phi)
         
 
+        
+        
+class ConvergenceCriteria(object):
+    unit = ''
+    def __init__(self, threshold=0.05):
+        self.threshold = threshold
+        self.change = None
+    
+    def calc_change(self, u_0, u_1, unfrw_0, unfrw_1):
+        return None
+    
+    def has_converged(self, u_0, u_1, unfrw_0, unfrw_1):
+        self.change = self.calc_change(u_0, u_1, unfrw_0, unfrw_1)
+
+        if np.max(self.change) < self.threshold:
+            return True
+        else:
+            return False
+    
+    def show(self):
+        print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+        #print "Max = {1:.8f} {0},   Min = {2:.8f} {0} ".format(self.unit, np.max(self.change), np.min(self.change))
+        
+    
+
+class ConvCritNoIter(ConvergenceCriteria):
+    def has_converged(self, *args):
+        return True
+
+
+class ConvCritUnfrw1(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return (u_1-u_0)/u_0 * 100
+
+        
+class ConvCritUnfrw2(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/u_0) * 100
+
+        
+class ConvCritUnfrw3(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/(u_0+273.15)) * 100
+        
+        
+class ConvCritUnfrw4(ConvergenceCriteria):
+    unit = 'C'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs(u-u_bak)
+
+        
+        
+        
+        
+        
 def new_layered_model(type='', **kwargs):
     """Function to instantiate a layered model based on the type passed."""
     
@@ -727,7 +785,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  user_action=None,
                  outfile='model_result.txt',
                  outint=1*days,
-                 silent=False):
+                 silent=False,
+                 conv_crit=None):
     """Full solver for the model problem using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -737,6 +796,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     grad        The gradient [K/m] to use for the lower boundary
     """
     
+    if conv_crit is None:
+        if Layers.parameter_set in ['std','stefan']:
+            conv_crit = ConvCritNoIter()
+        else:
+            conv_crit = ConvCritUnfrw1(threshold=0.00001*100)
+            
     tstart = time.clock()
     
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
@@ -995,36 +1060,13 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     unfrw_u = n*phi_u    
                     
                     if iter2 != 0:       # Always do at least 1 iteration
-                        conv_type = 4
-                        
-                        if conv_type == 1:
-                            change = (u-u_bak)/u_bak
-                        elif conv_type == 2:
-                            change = np.abs((u-u_bak)/u_bak)
-                        elif conv_type == 3:
-                            change = np.abs((u-u_bak)/(u_bak+273.15))    # Using Kelvin in denominator to avoid division warning.
-                        elif conv_type == 4:
-                            change = np.abs(u-u_bak)    # using absolute change in temperature
-                        
-                        #change = np.abs((u-u_bak)/u_bak)
+                        convergence = conv_crit.has_converged(u_bak, u, None, None)
                         
                         
                         if not silent:
-                            if conv_type in [1,2,3]:
-                                print "{0:.8f}%".format(np.max(change)*100),
-                            elif conv_type in [4]:
-                                print "{0:.8f}C".format(np.max(change)),
-                            #print "{0:.8f}%".format(np.max(change)*100),
+                            conv_crit.show()
                             
-                        if conv_type in [1,2]:
-                            conv_threshold = 0.00001
-                        elif conv_type == 3:
-                            conv_threshold = 0.00000001
-                        elif conv_type == 4:
-                            conv_threshold = 0.001/100
-                            
-                        if np.max(change) < conv_threshold:
-                        #if np.max(change) < 0.00001:
+                        if convergence:
                             # break iteration loop since no significant change in 
                             # temperature is observed.
                             convergence = True
@@ -1034,7 +1076,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
-                    convergence = True
+
+                    convergence = conv_crit.has_converged(u_bak, u, None, None)
             
             u_bak = u.copy()
             
