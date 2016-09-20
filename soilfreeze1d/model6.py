@@ -88,12 +88,16 @@ if __name__ == '__main__':
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
-        
+    
     # Switch animation on or off
     if animate:
         user_action = plot_solution
     else:
         user_action = None
+    
+    # Convergence Criteria
+    
+    conv_crit = soilfreeze1d.ConvCritUnfrw4(threshold=0.001/100)
     
     # Call Finite Difference engine    
     u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
@@ -101,7 +105,8 @@ if __name__ == '__main__':
                                              ub=surf_T, lb_type=2, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
-                                             outint=outint)
+                                             outint=outint,
+                                             conv_crit=conv_crit)
     
     # This call is to use the non-uniform grid solver. Strangely, it is much slower???    
     #u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 

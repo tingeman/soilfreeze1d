@@ -614,8 +614,10 @@ class LayeredModel_stefan(LayeredModel):
         
 class ConvergenceCriteria(object):
     unit = ''
-    def __init__(self, threshold=0.05):
+    def __init__(self, threshold=0.05, max_iter=5):
         self.threshold = threshold
+        self.max_iter = max_iter
+        self.iteration = 0
         self.change = None
     
     def calc_change(self, u_0, u_1, unfrw_0, unfrw_1):
@@ -629,8 +631,19 @@ class ConvergenceCriteria(object):
         else:
             return False
     
+    def iterator(self):
+        while self.iteration < self.max_iter:
+            yield self.iteration
+            self.iteration += 1
+
+    def reset_iterator(self):
+        self.iteration = 0
+        
     def show(self):
-        print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+        if self.unit == '%':
+            print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
+        else:
+            print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
         #print "Max = {1:.8f} {0},   Min = {2:.8f} {0} ".format(self.unit, np.max(self.change), np.min(self.change))
         
     
@@ -643,25 +656,25 @@ class ConvCritNoIter(ConvergenceCriteria):
 class ConvCritUnfrw1(ConvergenceCriteria):
     unit = '%'
     def calc_change(self, u_0, u_1, *args):
-        return (u_1-u_0)/u_0 * 100
+        return (u_1-u_0)/u_0
 
         
 class ConvCritUnfrw2(ConvergenceCriteria):
     unit = '%'
     def calc_change(self, u_0, u_1, *args):
-        return np.abs((u_1-u_0)/u_0) * 100
+        return np.abs((u_1-u_0)/u_0)
 
         
 class ConvCritUnfrw3(ConvergenceCriteria):
     unit = '%'
     def calc_change(self, u_0, u_1, *args):
-        return np.abs((u_1-u_0)/(u_0+273.15)) * 100
+        return np.abs((u_1-u_0)/(u_0+273.15))
         
         
 class ConvCritUnfrw4(ConvergenceCriteria):
     unit = 'C'
     def calc_change(self, u_0, u_1, *args):
-        return np.abs(u-u_bak)
+        return np.abs(u_1-u_0)
 
         
         
@@ -800,7 +813,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         if Layers.parameter_set in ['std','stefan']:
             conv_crit = ConvCritNoIter()
         else:
-            conv_crit = ConvCritUnfrw1(threshold=0.00001*100)
+            conv_crit = ConvCritUnfrw1(threshold=0.00001)
             
     tstart = time.clock()
     
@@ -894,12 +907,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
        
     
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    iter1 = 0    
+    step = 0    
     
     # Time loop    
-    while solver_time() < t_end:
-        convergence = False        
-        iter1 += 1        
+    while solver_time() < t_end:      
+        step += 1        
         
         # u_1 holds the temperatures at time step n
         # u   will eventually hold calculated temperatures at step n+1
@@ -907,7 +919,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         u_bak = u_1 
         
         if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
+            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
@@ -940,17 +952,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         F = solver_time.dt/(2*dx**2)        
 
 
-        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-            maxiter2 = 5
-        else:
-            maxiter2 = 1
+#        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+#            maxiter2 = 5
+#        else:
+#            maxiter2 = 1
 
-        
-        for iter2 in xrange(maxiter2):
+        conv_crit.reset_iterator()
+        for it in conv_crit.iterator():
+            convergence = False
             
             if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 # NEW APPROACH TRYING AN ITERATION SCHEME
-                if iter2 == 0:
+                if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
@@ -1059,9 +1072,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
-                    if iter2 != 0:       # Always do at least 1 iteration
+                    if conv_crit.iteration != 0:       # Always do at least 1 iteration
                         convergence = conv_crit.has_converged(u_bak, u, None, None)
-                        
                         
                         if not silent:
                             conv_crit.show()
@@ -1117,7 +1129,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         if convergence or not success:
             # We had convergence, prepare for next time step.             
             if not silent: 
-                print "Done! {0:d} iters".format(iter2)
+                print "Done! {0:d} iters".format(conv_crit.iteration)
             
             pre_time = solver_time()
             solver_time.step()
