@@ -809,13 +809,37 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  outint=1*days,
                  silent=False,
                  show_solver_time=True):
-    """Full solver for the model problem using the theta based finite difference 
+    """Uniform grid solver using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
     
-    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-    lb_type=2   Neumann type lower boundary condition (specified gradient)    
-    grad        The gradient [K/m] to use for the lower boundary
+    Layers       LayeredModel (or subclass) instance defining layer parameters
+    Nx           Number of equidistant grid points in domain
+    dt           The maximum permissible time step [s]
+    t_end        The end time of the model [s]
+    t_0          The starting time of the model [s]
+    dt_min       The minumum permissible time step [s]
+    theta        Parameter determining the type of finite difference solution.
+                     theta = 0:   Forward Euler solution
+                     theta = 0.5: Crank-Nicholson solution
+                     theta = 1:   Backward Euler solution
+    Tinit        Function defining initial temperatures at all node points 
+                     (takes depth as input argument)
+    ub           Function returning the upper boundary temperature for any point in time. 
+                     (takes time [s] as input argument)
+    lb           Function returning the lower boundary value for any point in time. 
+                     (takes time [s] as input argument)
+    lb_type      Flag to set the type of lower boundary values:
+                     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+                     lb_type=2   Neumann type lower boundary condition (specified gradient)    
+    grad         The gradient [K/m] to use for the lower boundary (presently not a function)
+    user_action  Function to be called at every iteration, can handle any user plotting etc.
+    conv_crit    ConvergenceCriteria (or subclass) instance defining the convergence
+                     criteria for iterative search for unfrozen water content.
+    outfile      Filename of the output data file
+    outint       Frequency of data output [s]
+    silent       Flag to determine if status messages are written to stdout.
+    show_solver_time    If silent, solver time may still be printed to indicate progress.
     """
 
     tstart = time.clock()
@@ -834,15 +858,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
     dx = x[1] - x[0]
     
-    #Nt = int(round((t_end-t0)/float(dt)))
-    
     u   = np.zeros(Nx+1)   # solution array at t[tid+1]
     u_1 = np.zeros(Nx+1)   # solution at t[tid]
     u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
 
     dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
-    #dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
-    #                             # averaged over two cells except for first and last.
     
     # Representation of sparse matrix and right-hand side
     diagonal = np.zeros(Nx+1)
@@ -902,7 +922,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C')
         k_fr = np.nan
         C_fr = np.nan
-        #n = Layers.pick_values(x, 'n')
     
     # Set initial condition
     for i in range(0,Nx+1):
@@ -920,7 +939,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
     step = 0    
-    print 'day:' + ' '*12,
+    if silent and show_solver_time:
+        print 'day:' + ' '*12,
     
     # Time loop    
     while solver_time() < t_end:      
@@ -935,11 +955,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent:
                 print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
             elif show_solver_time:
-                #if step == 1:
-                #    print 'day {0:10.2f}'.format(solver_time()/(1*days)),
-                #else:
                 print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
-                #sys.stdout.flush()
         except:
             pass
                 
@@ -974,24 +990,17 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         F = solver_time.dt/(2*dx**2)        
 
 
-#        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-#            maxiter2 = 5
-#        else:
-#            maxiter2 = 1
-        
+        # Iterative scheme for estimating unfrozen water content
         convergence = False
         conv_crit.reset_iterator()
         for it in conv_crit.iterator():
             
             if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-                # NEW APPROACH TRYING AN ITERATION SCHEME
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
                     C_add = C_add_1
-                    #print "I:{0:.2f}".format(C_add[10]),                    
-                    
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
@@ -1004,8 +1013,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     # exactly zero (produces infinite result the finite
                     # difference).
                     
-                    #dT = (u-u_1)
-                    
                     # Temporarily ignore division by zero warning.
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
@@ -1015,7 +1022,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
-                #print "C:{0:.2f}".format(C_app[10]),
                 
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
@@ -1025,7 +1031,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 C_app = C_eff
             
             if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
-                pdb.set_trace()
+                raise ValueError('Invalid NaN or Inf value encountered in apparent heat capacity!')
             
             # Compute diagonal elements for inner points
             A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
@@ -1037,7 +1043,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
             C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
 
-            
             # Compute sparse matrix (scipy format)
             diagonal[1:-1] = 1 + theta*B_m[1:-1]
             lower = -theta*A_m  #1
@@ -1065,7 +1070,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
                                    offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
                                    format='csr')
-            #print A.todense()
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
@@ -1081,8 +1085,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             elif lb_type == 3:
                 # First order Neumann solution for lower boundary
                 b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
-            
-            
+
+            # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
             # NOW HANDLE CONVERGENCE TESTING
@@ -1113,32 +1117,21 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 # break iteration loop since no significant is observed.
                 break    
 
-            
-
         if not convergence:
             if not silent:
                 print "No convergence.",
                 
-            pre_time = solver_time()
             timestep_decreased = solver_time.decrease_step()
-            post_time = solver_time()
-            
-            if solver_time() < 0:
-                print '' 
-                print 'Problem .....!'
-                print pre_time
-                print post_time
-                return
-                
             
             # We decrease time step, because we did not see
-            # sufficient improvement within maxiter2 iterations.
+            # sufficient improvement within the maximum numberof iterations.
+            
             # Since solver_time is optimistic, it will automatically
-            # increase time step gradually.
+            # increase time step gradually, whenever possible.
             
             # If timestep_decreased is False, we have reached the minimum time step.            
-            
-            # do not step forward in time, we need to recalculate for time n+dt
+            # do not step forward in time, we need to recalculate for time t+dt
+            # where dt is the new decreased time step.
             
             if timestep_decreased:
                 if not silent:
@@ -1152,10 +1145,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            pre_time = solver_time()
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
             solver_time.step()
-            post_time = solver_time()
             
+            # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
                 dt_stats[solver_time.dt] = {'N': 1, 'max_iter': conv_crit.iteration}
             else:
@@ -1168,21 +1162,31 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 iter_stats[conv_crit.iteration] += 1
             
-            if solver_time() < 0:
-                print '' 
-                print 'Problem .....!'
-                print pre_time
-                print post_time
-                return
-            
-            u[0] = ub(solver_time())            
+            # update upper boundary temperature
+            u[0] = ub(solver_time())         
+
+            # Perform any defined user action
             if user_action is not None:
                 user_action(u, x, solver_time())
     
+            # Add data to data file buffer
             datafile.add(solver_time(), ub(solver_time()), u)
             
+            # Prepare for next time step...
             u_1, u = u, u_1
     
+    # The model run has completed, now wrap up and print/output results
+    
+    # Screen output
+    try:
+        if not silent:
+            print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+        elif show_solver_time:
+            print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+    except:
+        pass
+    
+    # Output statistics to datafile.
     datafile.flush()
     tstop = time.clock()    
     datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
