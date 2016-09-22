@@ -114,7 +114,15 @@ if __name__ == '__main__':
             #dict(scheme='CN', dt=3*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_3h-1s_CN_th1e-3_max1i.txt',  cpu=None),
             #dict(scheme='CN', dt=6*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_6h-1s_CN_th1e-3_max1i.txt',  cpu=None),
             #
-            # dict(scheme='CN', dt=1*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_1h-1s_CN_th1e-3_max1i.txt',  cpu=None),
+            # dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max1i.txt',  cpu=None),
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 2), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max2i.txt',  cpu=None),
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 3), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max3i.txt',  cpu=None),
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 4), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max4i.txt',  cpu=None),            
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 5), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max5i.txt',  cpu=None),            
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 7), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max7i.txt',  cpu=None),            
+            dict(scheme='CN', dt=30*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter=10), outfile='m7/model7_uw4_30m-1s_CN_th1e-3_max10i.txt', cpu=None),            
+            #
+            # dict(scheme='CN', dt=1*hours, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_1h-1s_CN_th1e-3_max1i.txt',  cpu=None),
             dict(scheme='CN', dt=1*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 2), outfile='m7/model7_uw4_1h-1s_CN_th1e-3_max2i.txt',  cpu=None),
             dict(scheme='CN', dt=1*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 3), outfile='m7/model7_uw4_1h-1s_CN_th1e-3_max3i.txt',  cpu=None),
             dict(scheme='CN', dt=1*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 4), outfile='m7/model7_uw4_1h-1s_CN_th1e-3_max4i.txt',  cpu=None),            
@@ -137,6 +145,14 @@ if __name__ == '__main__':
             dict(scheme='CN', dt=6*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 5), outfile='m7/model7_uw4_6h-1s_CN_th1e-3_max5i.txt',  cpu=None),            
             dict(scheme='CN', dt=6*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 7), outfile='m7/model7_uw4_6h-1s_CN_th1e-3_max7i.txt',  cpu=None),            
             dict(scheme='CN', dt=6*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter=10), outfile='m7/model7_uw4_6h-1s_CN_th1e-3_max10i.txt', cpu=None),            
+            #
+            #dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max1i.txt',  cpu=None),
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 2), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max2i.txt',  cpu=None),
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 3), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max3i.txt',  cpu=None),
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 4), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max4i.txt',  cpu=None),            
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 5), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max5i.txt',  cpu=None),            
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 7), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max7i.txt',  cpu=None),            
+            dict(scheme='CN', dt=8*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter=10), outfile='m7/model7_uw4_8h-1s_CN_th1e-3_max10i.txt', cpu=None),            
             #
             #dict(scheme='CN', dt=12*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 1), outfile='m7/model7_uw4_6h-1s_CN_th1e-3_max1i.txt',  cpu=None),
             dict(scheme='CN', dt=12*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 2), outfile='m7/model7_uw4_12h-1s_CN_th1e-3_max2i.txt',  cpu=None),
@@ -195,9 +211,10 @@ if __name__ == '__main__':
                     if hasattr(dat.icol(0).irow(-lid), 'split'):
                         # This is a string
                         if dat.icol(0).irow(-lid).startswith('# cpu'):
-                            cpu_line = dat.index.max()-lid+1  # the line number from the bottom of the file
+                            cpu_line = dat.index.max()-lid+1  # the line number of the cpu comment
                             break
-                            
+                
+                # Parse all info from file
                 runs[rid]['cpu'] = float(dat.icol(0).irow(cpu_line).rstrip(' sec').split(':')[-1])
                 cpu_times[run['outfile']] = runs[rid]['cpu']
                 times = np.array(list(dat.ix[1:cpu_line-1,0].values), dtype='f8')
@@ -211,6 +228,7 @@ if __name__ == '__main__':
         params['dT_min'] = 0.
         params['dT_avg'] = 0.
         params['dT_std'] = 0.
+        params['dT_999pct'] = 0.
         params['max_iter'] = 0.
         params['max_dt'] = 0.
         params['max_dt_str'] = 0.
@@ -225,6 +243,7 @@ if __name__ == '__main__':
                 dT_absmax = max([dT_max, abs(dT_min)])
                 dT_avg = (refdat-data[dat_key]).mean().mean()
                 dT_std = (refdat-data[dat_key]).std().std()
+                dT_999pct = np.percentile(np.abs(refdat-data[dat_key]), 99.9)
                 max_iter = int(dat_key.split('max')[1].split('i.txt')[0])
                 max_dt_str = dat_key.split('uw4_')[1].split('-1s')[0]
                 max_dt = int(dat_key.split('uw4_')[1].split('-1s')[0][0:-1])
@@ -241,19 +260,21 @@ if __name__ == '__main__':
                 params.ix[params['outfile']==dat_key, 'dT_absmax'] = dT_absmax
                 params.ix[params['outfile']==dat_key, 'dT_avg'] = dT_avg
                 params.ix[params['outfile']==dat_key, 'dT_std'] = dT_std
+                params.ix[params['outfile']==dat_key, 'dT_999pct'] = dT_999pct
                 params.ix[params['outfile']==dat_key, 'max_iter'] = max_iter
                 params.ix[params['outfile']==dat_key, 'max_dt'] = max_dt                
                 params.ix[params['outfile']==dat_key, 'max_dt_str'] = max_dt_str                
                 #print '{0:43}:  Max: {1:7.4f} C,  Min: {2:7.4f} C,  Avg: {3:7.4f} C,  Std: {4:7.4f} C,  CPU: {5:7.4f} s'.format(dat_key, dT_max, dT_min, dT_avg, dT_std, cpu_times[dat_key])
         
         pd.set_option('display.width', 200)
-        print params[['outfile','max_dt_str','max_iter','dT_absmax','dT_avg','dT_std','cpu']].sort('cpu') 
+        print params[['outfile','max_dt_str','max_iter','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort('cpu') 
                  
         if True:
             fig1 = plt.figure(); ax1 = plt.axes()
             fig2 = plt.figure(); ax2 = plt.axes()
             fig3 = plt.figure(); ax3 = plt.axes()
             fig4 = plt.figure(); ax4 = plt.axes()
+            fig5 = plt.figure(); ax5 = plt.axes()
             
             m = ['.','.','.','.','.','.','.']
             c = ['k','r','g','b','c','m','y']
@@ -270,27 +291,35 @@ if __name__ == '__main__':
                 ydat = params[params['max_iter'] == max_iter]['dT_std']
                 ax3.plot(xdat, ydat, marker=m[itid], color=c[itid], label='Max {0} iters'.format(max_iter))
 
+                ydat = params[params['max_iter'] == max_iter]['dT_999pct']
+                ax4.plot(xdat, ydat, marker=m[itid], color=c[itid], label='Max {0} iters'.format(max_iter))
+                
                 ydat = params[params['max_iter'] == max_iter]['cpu']
-                ax4.loglog(xdat, ydat, marker=m[itid], color=c[itid], label='Max {0} iters'.format(max_iter))
+                ax5.loglog(xdat, ydat, marker=m[itid], color=c[itid], label='Max {0} iters'.format(max_iter))
                 
             ax1.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
             ax1.set_xlabel('Maximum time step [min]')
             ax1.set_ylabel('Maximum absolute temperature difference [C]')
             ax1.legend(loc=0)
             
-            ax1.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
+            ax2.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
             ax2.set_xlabel('Maximum time step [min]')
             ax2.set_ylabel('Average temperature difference [C]')
             ax2.legend(loc=0)
             
-            ax1.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
+            ax3.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
             ax3.set_xlabel('Maximum time step [min]')
             ax3.set_ylabel('Stdev of temperature difference [C]')
             ax3.legend(loc=0)
                   
+            ax4.set_title('Reference: Cranck-Nicholson, dt_max=1m, dt_min=1s, max 5 iters')        
             ax4.set_xlabel('Maximum time step [min]')
-            ax4.set_ylabel('Calculation time [s]')
+            ax4.set_ylabel('99.9th percentile of absolute temperature difference [C]')
             ax4.legend(loc=0)
+                  
+            ax5.set_xlabel('Maximum time step [min]')
+            ax5.set_ylabel('Calculation time [s]')
+            ax5.legend(loc=0)
             
             plt.show()
 
