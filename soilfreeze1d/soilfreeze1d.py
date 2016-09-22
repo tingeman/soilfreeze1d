@@ -617,14 +617,14 @@ class ConvergenceCriteria(object):
     def __init__(self, threshold=0.05, max_iter=5):
         self.threshold = threshold
         self.max_iter = max_iter
-        self.iteration = 0
+        self.iteration = -1
         self.change = None
     
-    def calc_change(self, u_0, u_1, unfrw_0, unfrw_1):
+    def calc_change(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
         return None
     
-    def has_converged(self, u_0, u_1, unfrw_0, unfrw_1):
-        self.change = self.calc_change(u_0, u_1, unfrw_0, unfrw_1)
+    def has_converged(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
+        self.change = self.calc_change(u_0, u_1, unfrw_0, unfrw_1, dt_fraction)
 
         if np.max(self.change) < self.threshold:
             return True
@@ -633,17 +633,25 @@ class ConvergenceCriteria(object):
     
     def iterator(self):
         while self.iteration < self.max_iter:
-            yield self.iteration
             self.iteration += 1
+            yield self.iteration
 
     def reset_iterator(self):
-        self.iteration = 0
+        self.iteration = -1
         
     def show(self):
-        if self.unit == '%':
-            print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
-        else:
-            print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+        success = False
+        attempts = 0
+        while success == False and attempts < 10:
+            try:
+                if self.unit == '%':
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
+                else:
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+                success = True
+            except:
+                pass
+            attempts += 1
         #print "Max = {1:.8f} {0},   Min = {2:.8f} {0} ".format(self.unit, np.max(self.change), np.min(self.change))
         
     
@@ -673,8 +681,8 @@ class ConvCritUnfrw3(ConvergenceCriteria):
         
 class ConvCritUnfrw4(ConvergenceCriteria):
     unit = 'C'
-    def calc_change(self, u_0, u_1, *args):
-        return np.abs(u_1-u_0)
+    def calc_change(self, u_0, u_1, uw_0, uw_1, dt_fraction):
+        return np.abs(u_1-u_0)/np.float(dt_fraction)
 
         
         
@@ -705,7 +713,7 @@ class SolverTime(object):
         self.dt = self.dt_max*self.dt_fraction
         self.step_up_allowed = False
         self.optimistic = optimistic
-        self._o_counter = 0        
+        self._o_counter = 0
         
     def _is_power2(self, num):
         """Tests if num is a power of two."""
@@ -796,10 +804,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
+                 conv_crit=None,
                  outfile='model_result.txt',
                  outint=1*days,
                  silent=False,
-                 conv_crit=None):
+                 show_solver_time=True):
     """Full solver for the model problem using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -808,15 +817,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     lb_type=2   Neumann type lower boundary condition (specified gradient)    
     grad        The gradient [K/m] to use for the lower boundary
     """
+
+    tstart = time.clock()
+    
+    dt_stats = {}
+    iter_stats = {}
     
     if conv_crit is None:
         if Layers.parameter_set in ['std','stefan']:
             conv_crit = ConvCritNoIter()
         else:
-            conv_crit = ConvCritUnfrw1(threshold=0.00001)
+            conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
             
-    tstart = time.clock()
-    
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
     x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
@@ -908,6 +920,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
     step = 0    
+    print 'day:' + ' '*12,
     
     # Time loop    
     while solver_time() < t_end:      
@@ -918,9 +931,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         
         u_bak = u_1 
         
-        if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction) ,
-        
+        try:
+            if not silent:
+                print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+            elif show_solver_time:
+                #if step == 1:
+                #    print 'day {0:10.2f}'.format(solver_time()/(1*days)),
+                #else:
+                print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+                #sys.stdout.flush()
+        except:
+            pass
+                
         if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
             k_eff = k_th
@@ -956,10 +978,10 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
 #            maxiter2 = 5
 #        else:
 #            maxiter2 = 1
-
+        
+        convergence = False
         conv_crit.reset_iterator()
         for it in conv_crit.iterator():
-            convergence = False
             
             if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 # NEW APPROACH TRYING AN ITERATION SCHEME
@@ -1063,35 +1085,34 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
+            # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
-                convergence = True
+                convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
                 if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
                     if conv_crit.iteration != 0:       # Always do at least 1 iteration
-                        convergence = conv_crit.has_converged(u_bak, u, None, None)
+                        convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
                         
                         if not silent:
                             conv_crit.show()
-                            
-                        if convergence:
-                            # break iteration loop since no significant change in 
-                            # temperature is observed.
-                            convergence = True
-                            u_bak = u.copy()
-                            break    
                     
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
 
-                    convergence = conv_crit.has_converged(u_bak, u, None, None)
+                    convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             
             u_bak = u.copy()
+
+            if convergence:
+                # break iteration loop since no significant is observed.
+                break    
+
             
 
         if not convergence:
@@ -1099,7 +1120,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 print "No convergence.",
                 
             pre_time = solver_time()
-            success = solver_time.decrease_step()
+            timestep_decreased = solver_time.decrease_step()
             post_time = solver_time()
             
             if solver_time() < 0:
@@ -1115,18 +1136,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             # Since solver_time is optimistic, it will automatically
             # increase time step gradually.
             
-            # If success is False, we have reached the minimum time step.            
+            # If timestep_decreased is False, we have reached the minimum time step.            
             
             # do not step forward in time, we need to recalculate for time n+dt
             
-            if success:
+            if timestep_decreased:
                 if not silent:
                     print "dt reduced."
             else:
                 if not silent: 
                     print "Reduction impossible.",
 
-        if convergence or not success:
+        if convergence or not timestep_decreased:
             # We had convergence, prepare for next time step.             
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
@@ -1134,7 +1155,19 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             pre_time = solver_time()
             solver_time.step()
             post_time = solver_time()
-
+            
+            if solver_time.dt not in dt_stats:
+                dt_stats[solver_time.dt] = {'N': 1, 'max_iter': conv_crit.iteration}
+            else:
+                dt_stats[solver_time.dt]['N'] += 1
+                if conv_crit.iteration > dt_stats[solver_time.dt]['max_iter']:
+                    dt_stats[solver_time.dt]['max_iter'] = conv_crit.iteration
+            
+            if conv_crit.iteration not in iter_stats:
+                iter_stats[conv_crit.iteration] = 1
+            else:
+                iter_stats[conv_crit.iteration] += 1
+            
             if solver_time() < 0:
                 print '' 
                 print 'Problem .....!'
@@ -1152,7 +1185,16 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     datafile.flush()
     tstop = time.clock()    
-    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
+    
+    datafile.add_comment('--- Step-size statistics ----')
+    for key in sorted(dt_stats.keys()):
+        datafile.add_comment('{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'], dt_stats[key]['max_iter']))
+    
+    datafile.add_comment('--- Iterations statistics ----')    
+    for key in sorted(iter_stats.keys()):
+        datafile.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))        
+    
     return u, x, solver_time(), tstop-tstart
 
 
