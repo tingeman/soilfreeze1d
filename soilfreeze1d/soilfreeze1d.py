@@ -41,7 +41,9 @@ store solutions, etc.
 import pdb
 import time
 import os.path
+import warnings
 import fractions
+import decimal
 import numpy as np
 import matplotlib
 #matplotlib.use('Qt4Agg')
@@ -118,7 +120,7 @@ class TimeInterpolator(object):
     Usage:
     
     # Initialization
-    time_interp = TimeInterpolator(0, times, temperatures)
+    time_interp = TimeInterpolator(times, temperatures)
     
     # Get interpolated temperature at t=27.15
     time_interp(27.15)
@@ -130,7 +132,7 @@ class TimeInterpolator(object):
     time_interp.reset()
     """
 
-    def __init__(self, xp, fp):
+    def __init__(self, xp, fp, x=0):
         
         self.xp = xp       # interpolation x-values (times)
         self.fp = fp       # interpolation y-values (temperatures)
@@ -271,32 +273,15 @@ class FileStorage(object):
                 f.write('\n')
         self.count = 0
         # file is automatically closed when using the "with .. as" construct
-
-
-
-
+        
 class LayeredModel(object):
-    _descriptor_unfrw = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
-                         'formats': ('f8',      'f8',  'f8',   'f8',   'f8',   'f8',   'f8', 'f8', 'f8', 'S50')}
+    _descriptor =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
+                     'formats': ('f8',      'f8', 'f8', 'S50')}
 
-    _descriptor_unfrw_swi = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha',  'beta',  'Tf', 'Soil_type'), 
-                             'formats': ('f8',      'f8', 'f8',  'f8',  'f8',  'f8',  'f8', 'f8',  'f8',     'f8',    'f8', 'S50')}
-                         
-    _descriptor_std =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
-                         'formats': ('f8',      'f8', 'f8', 'S50')}
-                         
-    _descriptor_stefan = {'names': ('Thickness', 'n',  'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'), 
-                          'formats': ('f8',      'f8', 'f8',   'f8',   'f8',   'f8',   'f8', 'f8',       'S50')}
-                         
-    def __init__(self, type='stefan', surface_z=0., interval=1, Tf=0.):
+    def __init__(self, type='std', surface_z=0., **kwargs):
         self._layers = None
         self.parameter_set = type
-        self._descriptor = getattr(self, '_descriptor_'+type)
-        self.surface_z = surface_z  # z-axis is positive down!
-        if type=='stefan':
-            self.interval = interval
-            self.Tf = Tf
-            
+        self.surface_z = surface_z  # z-axis is positive down!            
     
     def add(self, **kwargs):
         if self._layers is None:
@@ -313,7 +298,6 @@ class LayeredModel(object):
                 self._layers[-1][k] = v
             except:
                 pass
-
 
     # Layers[n] should return an ordered dictionary of all parameters for layer n
     # Layers.C_th should return an array of C_th for all layers
@@ -333,8 +317,7 @@ class LayeredModel(object):
         if attr == 'z_max':
             return self.surface_z+np.sum(self._layers['Thickness'])
         elif attr in self._descriptor['names']:
-            return self._layers[attr]
-            
+            return self._layers[attr]            
         else:
             raise ValueError('No such attribute defined')
     
@@ -367,7 +350,48 @@ class LayeredModel(object):
                 
         return result
     
+    def show(self, T1=-10, T2=2, fig=None):
+        raise NotImplementedError('Visualization of standard model not yet implemented')
+
+    def f_unfrw_fraction(**kwargs):
+        raise NotImplementedError('Unfrozen water is not implemented for standard model')
     
+    def f_unfrozen_water(**kwargs):
+        raise NotImplementedError('Unfrozen water is not implemented for standard model')
+    
+    def f_k_eff(k, **kwargs):
+        return k
+    
+    def f_C_eff(C, **kwargs):
+        return C
+
+
+
+# change unfrw_swi model so that:
+# 1) you fix the grid using set_grid method
+# 2) this triggers the generation of C_s, C_w etc arrays, holding values for each grid point
+# 3) f_xxxxxx methods use these precalculated arrays in the calculation of effective parameters
+
+# The idea is to make the solver completely unaware of the type of layered model, and thus how effective parameters are calculated.
+# so the code in the solver can be generic and independent of the parameters used in the layered model.        
+
+# It will be difficult to make it unaware of unfrozen water, as the iterative scheme is
+# based on convergence of the unfrozen water calculation...
+# could maybe put the convergence criteria in a LayeredModel method...
+# but that does not observe the single responsibility concept...
+
+# Could also make a separate Convergence class, which would handle all
+# about convergence tests and keep track of iterations and when to 
+# step time or change time step...
+        
+class LayeredModel_unfrw_swi(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha', 'beta', 'Tf', 'Soil_type'), 
+                   'formats': ('f8',      'f8', 'f8', 'f8',  'f8',  'f8',  'f8',  'f8',  'f8',    'f8',   'f8', 'S50')}
+                         
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'unfrw_swi'
+        super(LayeredModel_unfrw_swi, self).__init__(**kwargs)
+            
     def show(self, T1=-10, T2=2, fig=None):
         
         # allow a maximum of five layers for plotting
@@ -402,39 +426,286 @@ class LayeredModel(object):
             # Create axis for unfrozen water plot
             axes.append(plt.subplot2grid((nlayers,2), (n,1)))
             
-            # Select type of unfrozen water
-            if self.parameter_set == 'unfrw':
-                # unfrw = n*a*|T-Tf|**-b
-                Tstar = f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
-                unfrw = f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
-                                         self[n]['Tf'], Tstar, self[n]['n'])
-            elif self.parameter_set == 'stefan':
-                # unfrozen water is linear between Tf-interfal and Tf
-                #phi = np.ones_like(T)*np.nan
-                #phi[T>self[n]['Tf']] = 1.0  # The 1.0 is the water saturation
-                #phi[T<=self[n]['Tf']-self[n]['interval']] = 0.0  # No unfrozen water
-                #phi = np.where(np.isnan(phi), self[n]['interval']*T+1, phi)
-                phi = f_phi_stefan(T, self[n]['Tf'], self[n]['interval'])
-                unfrw = phi*self[n]['n']
-
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
+                                          self[n]['Tf'], Tstar, self[n]['n'])
+                                     
             axes[-1].plot(T,unfrw,'-k')
             axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
             
         plt.draw()        
         plt.show()
         
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        return Tf-np.power((S_w/a),(-1/b))
+            
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                             a*np.power(np.abs(T-Tf),-b),
+                             np.ones_like(T)*S_w)
+
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
+
+    def f_k_eff(self, k_s, k_w, k_i, n, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_s**(1-n)*k_w**(n*phi)*k_i**(n*(1-phi))        
+
+    def f_C_eff(self, C_s, C_w, C_i, n, phi):
+        """Calculates the effective heat capacity []."""
+        return C_s*(1-n) + C_w*(n*phi) + C_i*(n*(1-phi))
+        
     
-    # DONE: Add method to retrieve all parameters for a specific layers    
-    # DONE: Add method to calculate the grid point values of a specified parameter, given an array of gridpoint depths.    
-    # Add method to visualize the layered model somehow (including the unfrozen water content curve...)
+class LayeredModel_unfrw_thfr(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
+                   'formats': ('f8',      'f8',  'f8',   'f8',   'f8',   'f8',   'f8', 'f8', 'f8', 'S50')}
+                         
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'unfrw_thfr'
+        super(LayeredModel_unfrw_thfr, self).__init__(**kwargs)
+            
+    def show(self, T1=-10, T2=2, fig=None):
+        
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+        
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure() # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+        
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers,2), (0,0), rowspan=nlayers)
+
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1,T2,300)
+        
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
+        
+        # loop over all layers
+        for n in xrange(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])            
+            ax1.invert_yaxis()
+            
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers,2), (n,1)))
+            
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], 1.0, self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
+                                          self[n]['Tf'], Tstar, self[n]['n'])
+                                     
+            axes[-1].plot(T,unfrw,'-k')
+            axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
+            
+        plt.draw()        
+        plt.show()
+        
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        return Tf-np.power((S_w/a),(-1/b))
+            
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                             a*np.power(np.abs(T-Tf),-b),
+                             np.ones_like(T)*S_w)
+
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
+
+    def f_k_eff(self, k_f, k_t, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_f**(1-phi)*k_t**(phi)        
+
+    def f_C_eff(self, C_f, C_t, phi):
+        """Calculates the effective heat capacity []."""
+        return C_f*(1-phi)+C_t*(phi)          
+                             
+
+class LayeredModel_stefan(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n',  'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'), 
+                   'formats': ('f8',      'f8', 'f8',   'f8',   'f8',   'f8',   'f8', 'f8',       'S50')}
+                         
+    def __init__(self, interval=1, Tf=0., **kwargs):
+        kwargs['type'] = 'stefan'
+        super(LayeredModel_stefan, self).__init__(**kwargs)
+        self.interval = interval
+        self.Tf = Tf
+            
+    def show(self, T1=-10, T2=2, fig=None):
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+        
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure() # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+        
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers,2), (0,0), rowspan=nlayers)
+
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1,T2,300)
+        
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
+        
+        # loop over all layers
+        for n in xrange(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])            
+            ax1.invert_yaxis()
+            
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers,2), (n,1)))
+            
+            # unfrozen water is linear between Tf-interfal and Tf
+            phi = self.f_unfrw_fraction(T, self[n]['Tf'], self[n]['interval'])
+            unfrw = phi*self[n]['n']
+                                     
+            axes[-1].plot(T,unfrw,'-k')
+            axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
+            
+        plt.draw()        
+        plt.show()
+        
+    def f_unfrw_fraction(self, T, Tf, interval):
+        """Calculates the unfrozen water fraction."""
+        # unfrozen water is linear between Tf-interfal and Tf
+        phi = np.ones_like(T)*np.nan
+        phi[np.greater(T,Tf)] = 1.0              # The 1.0 is the water saturation
+        phi[np.less_equal(T,Tf-interval)] = 0.0  # No unfrozen water
+        return np.where(np.isnan(phi), interval*T+1, phi)
+
+    def f_unfrozen_water(self, T, Tf, interval, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_phi_unfrw(T, Tf, interval) * n
+
+    def f_k_eff(self, k_f, k_t, phi):
+        """Calculates the effective thermal conductivity []."""
+        return k_f**(1-phi)*k_t**(phi)        
+
+    def f_C_eff(self, C_f, C_t, phi):
+        """Calculates the effective heat capacity []."""
+        return C_f*(1-phi)+C_t*(phi)
+        
+
+        
+        
+class ConvergenceCriteria(object):
+    unit = ''
+    def __init__(self, threshold=0.05, max_iter=5):
+        self.threshold = threshold
+        self.max_iter = max_iter
+        self.iteration = -1
+        self.change = None
+    
+    def calc_change(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
+        return None
+    
+    def has_converged(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
+        self.change = self.calc_change(u_0, u_1, unfrw_0, unfrw_1, dt_fraction)
+
+        if np.max(self.change) < self.threshold:
+            return True
+        else:
+            return False
+    
+    def iterator(self):
+        while self.iteration < self.max_iter:
+            self.iteration += 1
+            yield self.iteration
+
+    def reset_iterator(self):
+        self.iteration = -1
+        
+    def show(self):
+        success = False
+        attempts = 0
+        while success == False and attempts < 10:
+            try:
+                if self.unit == '%':
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
+                else:
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+                success = True
+            except:
+                pass
+            attempts += 1
+        #print "Max = {1:.8f} {0},   Min = {2:.8f} {0} ".format(self.unit, np.max(self.change), np.min(self.change))
+        
+    
+
+class ConvCritNoIter(ConvergenceCriteria):
+    def has_converged(self, *args):
+        return True
 
 
+class ConvCritUnfrw1(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return (u_1-u_0)/u_0
+
+        
+class ConvCritUnfrw2(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/u_0)
+
+        
+class ConvCritUnfrw3(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/(u_0+273.15))
+        
+        
+class ConvCritUnfrw4(ConvergenceCriteria):
+    unit = 'C'
+    def calc_change(self, u_0, u_1, uw_0, uw_1, dt_fraction):
+        return np.abs(u_1-u_0)/np.float(dt_fraction)
+
+        
+        
+        
+        
+        
+def new_layered_model(type='', **kwargs):
+    """Function to instantiate a layered model based on the type passed."""
+    
+    if type != '':
+        return globals()['LayeredModel_'+type](**kwargs)
+    else:
+        return LayeredModel(**kwargs)
+    
+        
 class SolverTime(object):
     """Class that handles adaptive time stepping for finite difference solver.
     """
     
     def __init__(self, t0, dt, dt_min=360, optimistic=False):
-        self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = decimal.Decimal(round(t0, 8))
+        self.time = np.float64(t0)
         self.previous_time = None
         self.dt_max = fractions.Fraction(dt).limit_denominator()
         self.dt_min = dt_min
@@ -442,7 +713,7 @@ class SolverTime(object):
         self.dt = self.dt_max*self.dt_fraction
         self.step_up_allowed = False
         self.optimistic = optimistic
-        self._o_counter = 0        
+        self._o_counter = 0
         
     def _is_power2(self, num):
         """Tests if num is a power of two."""
@@ -455,6 +726,10 @@ class SolverTime(object):
         time step.)
         
         """
+        
+        #if self.time == 33570196.875:
+        #    pdb.set_trace()
+        
         if self.optimistic and self._o_counter > 1:
             # If we are allowed to be optimistic, set step-up flag if the
             # last two steps did not result in a step size decrease.
@@ -529,9 +804,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
+                 conv_crit=None,
                  outfile='model_result.txt',
                  outint=1*days,
-                 silent=False):
+                 silent=False,
+                 show_solver_time=True):
     """Full solver for the model problem using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -540,9 +817,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     lb_type=2   Neumann type lower boundary condition (specified gradient)    
     grad        The gradient [K/m] to use for the lower boundary
     """
-    
+
     tstart = time.clock()
     
+    dt_stats = {}
+    iter_stats = {}
+    
+    if conv_crit is None:
+        if Layers.parameter_set in ['std','stefan']:
+            conv_crit = ConvCritNoIter()
+        else:
+            conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
+            
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
     x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
@@ -570,7 +856,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     unfrw_u1 = np.zeros(Nx+1)
 
     # Get constant layer parameters distributed on the grid
-    if Layers.parameter_set == 'unfrw':
+    if Layers.parameter_set == 'unfrw_thfr':
         if not silent: print "Using unfrozen water parameters"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
@@ -582,7 +868,22 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'unfrw_swi':
+        if not silent: print "Using unfrozen water parameters"
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)        
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -618,51 +919,73 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
        
     
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    iter1 = 0    
+    step = 0    
+    print 'day:' + ' '*12,
     
     # Time loop    
-    while solver_time() < t_end:
-        convergence = False        
-        iter1 += 1        
+    while solver_time() < t_end:      
+        step += 1        
         
         # u_1 holds the temperatures at time step n
         # u   will eventually hold calculated temperatures at step n+1
         
         u_bak = u_1 
         
-        if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
-        
+        try:
+            if not silent:
+                print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+            elif show_solver_time:
+                #if step == 1:
+                #    print 'day {0:10.2f}'.format(solver_time()/(1*days)),
+                #else:
+                print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+                #sys.stdout.flush()
+        except:
+            pass
+                
         if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
             k_eff = k_th
             C_eff = C_th
             unfrw_u1 = 0.
         else:
-            if Layers.parameter_set == 'unfrw':
-                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            if Layers.parameter_set == 'unfrw_thfr':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
+                
+            elif Layers.parameter_set == 'unfrw_swi':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
+                unfrw_u1 = n*phi
+                
             elif Layers.parameter_set == 'stefan':
-                phi = f_phi_stefan(u_1, Tf, interval)
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = f_k_eff(k_fr, k_th, phi)
-            C_eff = f_C_eff(C_fr, C_th, phi)
-            unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
         
         
         F = solver_time.dt/(2*dx**2)        
 
 
-        if Layers.parameter_set == 'unfrw':
-            maxiter2 = 5
-        else:
-            maxiter2 = 1
-
+#        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+#            maxiter2 = 5
+#        else:
+#            maxiter2 = 1
         
-        for iter2 in xrange(maxiter2):
+        convergence = False
+        conv_crit.reset_iterator()
+        for it in conv_crit.iterator():
             
-            if Layers.parameter_set == 'unfrw':
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 # NEW APPROACH TRYING AN ITERATION SCHEME
-                if iter2 == 0:
+                if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
@@ -673,12 +996,22 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
                     # difference for the unfrozen water content.
+
+                    # The latent heat contribution is estimated based on
+                    # a finite difference, where the temperature change
+                    # is non-zero, and the slope of the unfrozen water
+                    # content curve where the temperature change is
+                    # exactly zero (produces infinite result the finite
+                    # difference).
                     
                     #dT = (u-u_1)
-                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
                     
+                    # Temporarily ignore division by zero warning.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                                        
                     C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
-                    #print "*:{0:.2f}".format(C_add[10]),                    
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
@@ -752,61 +1085,95 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
+            # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
-                convergence = True
+                convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
-                if Layers.parameter_set == 'unfrw':
-                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
-                    if iter2 != 0:       # Always do at least 1 iteration
-                        change = (u-u_bak)/u_bak
+                    if conv_crit.iteration != 0:       # Always do at least 1 iteration
+                        convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
+                        
                         if not silent:
-                            print "{0:.8f}%".format(np.max(change)*100),
-            
-                        if np.max(change) < 0.00001:
-                            # break iteration loop since no significant change in 
-                            # temperature is observed.
-                            convergence = True
-                            u_bak = u.copy()
-                            break    
+                            conv_crit.show()
                     
                 elif Layers.parameter_set == 'stefan':
-                    phi_u = f_phi_stefan(u, Tf, interval)
+                    phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
-                    convergence = True
+
+                    convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             
             u_bak = u.copy()
+
+            if convergence:
+                # break iteration loop since no significant is observed.
+                break    
+
             
 
         if not convergence:
             if not silent:
                 print "No convergence.",
-            success = solver_time.decrease_step()
+                
+            pre_time = solver_time()
+            timestep_decreased = solver_time.decrease_step()
+            post_time = solver_time()
+            
+            if solver_time() < 0:
+                print '' 
+                print 'Problem .....!'
+                print pre_time
+                print post_time
+                return
+                
+            
             # We decrease time step, because we did not see
             # sufficient improvement within maxiter2 iterations.
             # Since solver_time is optimistic, it will automatically
             # increase time step gradually.
             
-            # If success is False, we have reached the minimum time step.            
+            # If timestep_decreased is False, we have reached the minimum time step.            
             
             # do not step forward in time, we need to recalculate for time n+dt
             
-            if success:
+            if timestep_decreased:
                 if not silent:
                     print "dt reduced."
             else:
                 if not silent: 
                     print "Reduction impossible.",
 
-        if convergence or not success:
+        if convergence or not timestep_decreased:
             # We had convergence, prepare for next time step.             
             if not silent: 
-                print "Done! {0:d} iters".format(iter2)
+                print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            solver_time.step()        
+            pre_time = solver_time()
+            solver_time.step()
+            post_time = solver_time()
+            
+            if solver_time.dt not in dt_stats:
+                dt_stats[solver_time.dt] = {'N': 1, 'max_iter': conv_crit.iteration}
+            else:
+                dt_stats[solver_time.dt]['N'] += 1
+                if conv_crit.iteration > dt_stats[solver_time.dt]['max_iter']:
+                    dt_stats[solver_time.dt]['max_iter'] = conv_crit.iteration
+            
+            if conv_crit.iteration not in iter_stats:
+                iter_stats[conv_crit.iteration] = 1
+            else:
+                iter_stats[conv_crit.iteration] += 1
+            
+            if solver_time() < 0:
+                print '' 
+                print 'Problem .....!'
+                print pre_time
+                print post_time
+                return
             
             u[0] = ub(solver_time())            
             if user_action is not None:
@@ -818,7 +1185,16 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     datafile.flush()
     tstop = time.clock()    
-    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
+    
+    datafile.add_comment('--- Step-size statistics ----')
+    for key in sorted(dt_stats.keys()):
+        datafile.add_comment('{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'], dt_stats[key]['max_iter']))
+    
+    datafile.add_comment('--- Iterations statistics ----')    
+    for key in sorted(iter_stats.keys()):
+        datafile.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))        
+    
     return u, x, solver_time(), tstop-tstart
 
 
@@ -958,10 +1334,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     Dp = calc_Dp(x) 
     Dpp = calc_Dpp(x) 
     
+    # indexes into diagonal of the different matrices would be [idx[i], idx[i]]
+    idx = np.arange(Nx)
+    
     
     # Get constant layer parameters distributed on the grid
-    if Layers.parameter_set == 'unfrw':
-        if not silent: print "Using unfrozen water parameters"
+    if Layers.parameter_set == 'unfrw_thfr':
+        if not silent: print "Using unfrozen water parameters (th/fr)"
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -972,7 +1351,22 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+    elif Layers.parameter_set == 'unfrw_swi':
+        if not silent: print "Using unfrozen water parameters (swi)"
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        n = Layers.pick_values(x, 'n')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)  
     elif Layers.parameter_set == 'stefan':
         if not silent: print "Using stefan solution parameters"
         k_th = Layers.pick_values(x, 'k_th')
@@ -1021,7 +1415,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         u_bak = u_1 
         
         if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
+            print '{0:6d}, t: {1:10.0f}, dtf: {2}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
         
         if Layers.parameter_set == 'std':
             phi = 1.  # for standard solution there is no phase change
@@ -1029,17 +1423,29 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             C_eff = C_th
             unfrw_u1 = 0.
         else:
-            if Layers.parameter_set == 'unfrw':
-                phi = f_phi_unfrw(u_1, alpha, beta, Tf, Tstar, 1.0)
+            if Layers.parameter_set == 'unfrw_thfr':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
+                
+            elif Layers.parameter_set == 'unfrw_swi':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
+                
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
+                unfrw_u1 = n*phi
+                
             elif Layers.parameter_set == 'stefan':
-                phi = f_phi_stefan(u_1, Tf, interval)
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
-            k_eff = f_k_eff(k_fr, k_th, phi)
-            C_eff = f_C_eff(C_fr, C_th, phi)
-            unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_fr, k_th, phi)
+                C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n*phi
         
         
-        if Layers.parameter_set == 'unfrw':
+        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
             maxiter2 = 5
         else:
             maxiter2 = 1
@@ -1047,7 +1453,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         
         for iter2 in xrange(maxiter2):
             
-            if Layers.parameter_set == 'unfrw':
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
                 if iter2 == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
@@ -1073,20 +1479,15 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
                 pdb.set_trace()
             
-            # Calculate the G1 and G2 matrices
-            k_eff_diag = scipy.sparse.diags(diagonals=[k_eff],
-                                           offsets=[0], shape=(Nx, Nx),
-                                           format='csr')
+            # Calculate the G1 and G2 matrices            
+            diag_k_eff = scipy.sparse.csr_matrix((k_eff,(idx,idx)),shape=(Nx,Nx))
             
             Dp_dot_k = Dp.dot(k_eff.reshape(-1,1)).squeeze()
-            diag_Dp_dot_k = scipy.sparse.diags(diagonals=[Dp_dot_k],
-                                               offsets=[0], shape=(Nx, Nx),
-                                               format='csr')
-            TMP1 = (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
-            TMP2 = scipy.sparse.diags(diagonals=[(solver_time.dt/C_app).astype(float)],
-                                      offsets=[0], shape=(Nx,Nx),
-                                      format='csr')
             
+            diag_Dp_dot_k = scipy.sparse.csr_matrix((Dp_dot_k,(idx,idx)),shape=(Nx,Nx))
+            
+            TMP1 = (diag_k_eff*Dpp + diag_Dp_dot_k*Dp)
+            TMP2 = scipy.sparse.csr_matrix((float(solver_time.dt)/C_app,(idx,idx)),shape=(Nx,Nx))
             I = scipy.sparse.identity(Nx, dtype='float', format='csr')
             
             #TMP = solver_time.dt/C_app.reshape(-1,1) * (k_eff_diag*Dpp + diag_Dp_dot_k*Dp)
@@ -1123,17 +1524,19 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 d[-1] = grad
             else:
                 raise ValueError('Unknown lower boundary type')
-
+                
             # Solve system of equations
             u[:] = scipy.sparse.linalg.spsolve(G1, d)
 
+            
+            
             # Test for convergence, if necessary, depending of type of model
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
                 convergence = True
             else:
-                if Layers.parameter_set == 'unfrw':
-                    phi_u = f_phi_unfrw(u, alpha, beta, Tf, Tstar, 1.0)
+                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
                     if iter2 != 0:       # Always do at least 1 iteration
@@ -1149,7 +1552,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                             break    
                     
                 elif Layers.parameter_set == 'stefan':
-                    phi_u = f_phi_stefan(u, Tf, interval)
+                    phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
                     convergence = True
             
@@ -1344,37 +1747,8 @@ class Visualizer_T(object):
         plt.show(block=False)
     
         
-# --------------------------------------------------------------
-#
-# Calculation of unfrozen water content
-#
-# --------------------------------------------------------------    
 
-def f_Tstar(Tf, S_w, a, b):
-    """Calculation of the effective freezing point, T_star."""
-    return Tf-np.power((S_w/a),(-1/b))
-        
-        
-def f_phi_unfrw(T, a, b, Tf, Tstar, S_w):
-    """Calculates the unfrozen water fraction."""
-    return np.where(T < Tstar,
-                         a*np.power(np.abs(T-Tf),-b),
-                         np.ones_like(T)*S_w)
-
-
-def f_phi_stefan(T, Tf, interval):
-    """Calculates the unfrozen water fraction."""
-    # unfrozen water is linear between Tf-interfal and Tf
-    phi = np.ones_like(T)*np.nan
-    phi[np.greater(T,Tf)] = 1.0              # The 1.0 is the water saturation
-    phi[np.less_equal(T,Tf-interval)] = 0.0  # No unfrozen water
-    return np.where(np.isnan(phi), interval*T+1, phi)
     
-                         
-def f_unfrozen_water(T, a, b, Tf, Tstar, n, S_w=1.0):
-    """Calculates the unfrozen water content [m^3/m^3]."""
-    return f_phi_unfrw(T, a, b, Tf, Tstar, S_w) * n
-
 # --------------------------------------------------------------
 #
 # Calculation of thermal conductivities
@@ -1390,11 +1764,6 @@ def f_unfrozen_water(T, a, b, Tf, Tstar, n, S_w=1.0):
 #    """Calculates the thawed thermal conductivity []."""
 #    return k_s**(1-n)*k_w**(n)
     
-    
-def f_k_eff(k_f, k_t, phi):
-    """Calculates the effective thermal conductivity []."""
-    return k_f**(1-phi)*k_t**(phi)
-    
 
 # --------------------------------------------------------------
 #
@@ -1402,11 +1771,6 @@ def f_k_eff(k_f, k_t, phi):
 #
 # --------------------------------------------------------------        
 
-def f_C_eff(C_f, C_t, phi):
-    """Calculates the effective heat capacity []."""
-    return C_f*(1-phi)+C_t*(phi)    
-
-    
 #def f_C_f(C_s, C_i, n):
 #    """Calculates the frozen heat capacity []."""
 #    return C_s*(1-n)+C_i*(n)
