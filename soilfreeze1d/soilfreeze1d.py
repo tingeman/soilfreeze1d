@@ -855,25 +855,25 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
     dx = x[1] - x[0]
     
-    u   = np.zeros(Nx+1)   # solution array at t[tid+1]
-    u_1 = np.zeros(Nx+1)   # solution at t[tid]
-    u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
+    u   = np.zeros(Nx)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx)   # solution at t[tid]
+    u_bak = np.zeros(Nx)   # solution at t[tid+1], result from previous iteration
 
-    dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
+    dudT = np.ones(Nx)*-999.   # will hold derivative of unfrozen water
     
     # Representation of sparse matrix and right-hand side
-    diagonal = np.zeros(Nx+1)
-    lower    = np.zeros(Nx)
-    upper    = np.zeros(Nx)
-    b        = np.zeros(Nx+1)
-    A_m      = np.zeros(Nx)
-    B_m      = np.zeros(Nx+1)
-    C_m      = np.zeros(Nx)
-    unfrw_u  = np.zeros(Nx+1)
-    unfrw_u1 = np.zeros(Nx+1)
+    diagonal = np.zeros(Nx)
+    lower    = np.zeros(Nx-1)
+    upper    = np.zeros(Nx-1)
+    b        = np.zeros(Nx)
+    A_m      = np.zeros(Nx-1)
+    B_m      = np.zeros(Nx)
+    C_m      = np.zeros(Nx-1)
+    unfrw_u  = np.zeros(Nx)
+    unfrw_u1 = np.zeros(Nx)
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
@@ -924,7 +924,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_fr = np.nan
     
     # Set initial condition
-    for i in range(0,Nx+1):
+    for i in range(0,Nx):
         u_1[i] = Tinit(x[i])
 
     u = u_1 + 0.001    # initialize u for finite differences
@@ -1039,9 +1039,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
             
             # Compute diagonal elements for lower boundary point
-            A_N       = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
-            B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
-            C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
+            A_N       = F*(k_eff[Nx-1]+k_eff[Nx-2])/C_app[Nx-1]    
+            B_N       = F*(k_eff[Nx-2]+3*k_eff[Nx-1])/C_app[Nx-1]
+            C_N       = F*(2*k_eff[Nx-1])/C_app[Nx-1]    
 
             # Compute sparse matrix (scipy format)
             diagonal[1:-1] = 1 + theta*B_m[1:-1]
@@ -1054,21 +1054,21 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                diagonal[Nx] = 1
+                diagonal[Nx-1] = 1
                 lower[-1] = 0
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
-                diagonal[Nx] = 1
+                diagonal[Nx-1] = 1
                 lower[-1] = -1
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
-                diagonal[Nx] = 1 + theta*B_N
+                diagonal[Nx-1] = 1 + theta*B_N
                 lower[-1] = -theta*(A_N+C_N)  
             else:
                 raise ValueError('Unknown lower boundary type')
 
             U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
-                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
+                                   offsets=[0, -1, 1], shape=(Nx, Nx),
                                    format='csr')
                 
             # Compute known vector
