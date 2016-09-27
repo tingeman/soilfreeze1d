@@ -383,6 +383,9 @@ class LayeredModel(object):
 # Could also make a separate Convergence class, which would handle all
 # about convergence tests and keep track of iterations and when to 
 # step time or change time step...
+
+class LayeredModel_std(LayeredModel):
+    pass
         
 class LayeredModel_unfrw_swi(LayeredModel):
     _descriptor = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha', 'beta', 'Tf', 'Soil_type'), 
@@ -918,10 +921,14 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
     else:
         if not silent: print "Using standard parameters"
-        k_th = Layers.pick_values(x, 'k')
-        C_th = Layers.pick_values(x, 'C')
+        k_eff = Layers.pick_values(x, 'k')
+        C_eff = Layers.pick_values(x, 'C')
+        k_th = np.nan
+        C_th = np.nan
         k_fr = np.nan
         C_fr = np.nan
+        phi = 1.
+        unfrw_u1 = 0.
     
     # Set initial condition
     for i in range(0,Nx):
@@ -960,10 +967,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             pass
                 
         if Layers.parameter_set == 'std':
-            phi = 1.  # for standard solution there is no phase change
-            k_eff = k_th
-            C_eff = C_th
-            unfrw_u1 = 0.
+            #phi = 1.  # for standard solution there is no phase change
+            #k_eff = k_th
+            #C_eff = C_th
+            #unfrw_u1 = 0.
+            pass
         else:
             if Layers.parameter_set == 'unfrw_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
@@ -1030,8 +1038,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 C_app = C_eff
             
-            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
-                raise ValueError('Invalid NaN or Inf value encountered in apparent heat capacity!')
+            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)) or np.any(C_app <= 0):
+                raise ValueError('Invalid NaN, Inf or zero value encountered in apparent heat capacity!')
             
             # Compute diagonal elements for inner points
             A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
