@@ -1,23 +1,13 @@
 # -*- coding: utf-8 -*-
 """
+Created on Wed Apr 20 01:06:32 2016
+
 @author: thin
-
-===============================================================================
-
-This model script illustrates the use of the soilfreeze1d module for 
-calculating the thermal regime in a 1D model with one layer using the stefan 
-solution (phase change occurs linearly over a specified temperature interval).
-The model domain has an initial termperature of -2C at all nodes, and the 
-model is forced by a harmonic temperature variation at the upper boundary. 
-The lower boundary has a specified constant gradient of 0.08333 C/m.
-Results will be written to the file model1_results.txt at a daily interval.
-
-===============================================================================
-
 """
 
 # import standard pythom modules
 import numpy as np
+import pdb
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
@@ -25,7 +15,7 @@ import soilfreeze1d   # import the module containing the Finite Difference
 
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
-
+hours = 1*3600
 
 # Define any supporting functions
 
@@ -49,9 +39,11 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='stefan')
-    Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
-
+    Layers = soilfreeze1d.LayeredModel(type='unfrw')
+    Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    
+    
     # Thickness:    Thickness of the layer [m]
     # n:            Porosity [-]   Soil is considered fully saturated
     # C_th:         Heat capacity, thawed state [J/(m^3*C)]
@@ -64,39 +56,47 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    Nx = 100        # The number of nodes in the model domain is Nx+1
-    dt = 1*days   # The calculation time step
-    T = 100*365*days    # The total calculation period
+    dx0 = 0.05
+    dxf = 1.1
+    
+    Nx = 0
+    xtmp = [0, 1]
+    xsum = dx0
+    while xsum<(Layers.z_max-Layers.surface_z):
+        Nx += 1
+        xtmp.append(dxf**Nx)
+        xsum += xtmp[-1]*dx0
+    
+    x = np.cumsum(xtmp)*dx0+Layers.surface_z
+    x = x[:-1]
+    
+    #Nx = 400
+    #x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    
+    
+    dt = 24*hours   # The calculation time step
+    T = 2*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
 
-    # Example of a function that will give a constant
-    # upper boundary temperature
-    
-    #def surf_T(t):
-    #    return -2.
-    
     # Define the geothermal gradient (lower boundary)    
     grad=0.08333     # [K/m]
     
     # Set up plotting
     fignum  = 99    # Plot results in figure number 99    
-    animate = True  # Plot result of each model time step    
+    animate = False  # Plot result of each model time step    
                     # If set to False, only first and last
                     # time step will be plotted.
+    silent = True
     
     Tmin = -11      # The minimum value on the temperature axis
     Tmax = +9      # The maximum value on the temperature axis
-    z_max = 30      # Maximum plot depth on the z-axis    
+    z_max = 10      # Maximum plot depth on the z-axis    
     
     # Set up result output 
-    outfile = 'model1_results.txt' # Name of the result file
+    outfile = 'model4_nug_results.txt' # Name of the result file
     outint = 1*days  # The interval at which results will be written to the file    
-    
-    
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    dx = x[1] - x[0]
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
@@ -109,15 +109,36 @@ if __name__ == '__main__':
         user_action = None
     
     # Call Finite Difference engine    
-    u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
+    u1, x1, t1, cpu1 = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
                                              Tinit=initialTemperature, 
                                              ub=surf_T, lb_type=2, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
-                                             outint=outint)
+                                             outint=outint,
+                                             silent=silent)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u1, x1, t1)
+
+    print 'CPU time:', cpu1
     
-    print 'CPU time:', cpu
+    # Define model domain properties
+    Nx = 400        # The number of nodes in the model domain is Nx+1
+    
+    # Set up result output 
+    outfile = 'model1_ug_results.txt' # Name of the result file
+    outint = 1*days  # The interval at which results will be written to the file    
+    
+    # Call Finite Difference engine    
+    u2, x2, t2, cpu2 = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
+                                                 Tinit=initialTemperature, 
+                                                 ub=surf_T, lb_type=2, grad=grad,
+                                                 user_action=user_action,
+                                                 outfile=outfile,
+                                                 outint=outint,
+                                                 silent=silent)
+    
+    plot_solution.add(u2, x2, t2, 'b')    
+
+    print 'CPU time:', cpu2
     
