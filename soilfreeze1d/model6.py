@@ -38,9 +38,9 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='unfrw_thfr')
-    Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
-    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers = soilfreeze1d.new_layered_model(type='unfrw_swi')
+    Layers.add(Thickness= 3,  n=0.6, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
+    Layers.add(Thickness=28,  n=0.3, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
     
     
     # Thickness:    Thickness of the layer [m]
@@ -56,6 +56,8 @@ if __name__ == '__main__':
     
     # Define model domain properties
     Nx = 400        # The number of nodes in the model domain is Nx+1
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    
     dt = 24*hours   # The calculation time step
     T = 2*365*days    # The total calculation period
 
@@ -76,7 +78,7 @@ if __name__ == '__main__':
     z_max = 10      # Maximum plot depth on the z-axis    
     
     # Set up result output 
-    outfile = 'model4_results.txt' # Name of the result file
+    outfile = 'model6_results.txt' # Name of the result file
     outint = 1*days  # The interval at which results will be written to the file    
     
     
@@ -86,12 +88,16 @@ if __name__ == '__main__':
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
-        
+    
     # Switch animation on or off
     if animate:
         user_action = plot_solution
     else:
         user_action = None
+    
+    # Convergence Criteria
+    
+    conv_crit = soilfreeze1d.ConvCritUnfrw4(threshold=0.001/100)
     
     # Call Finite Difference engine    
     u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
@@ -99,7 +105,16 @@ if __name__ == '__main__':
                                              ub=surf_T, lb_type=2, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
-                                             outint=outint)
+                                             outint=outint,
+                                             conv_crit=conv_crit)
+    
+    # This call is to use the non-uniform grid solver. Strangely, it is much slower???    
+    #u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
+    #                                         Tinit=initialTemperature, 
+    #                                         ub=surf_T, lb_type=2, grad=grad,
+    #                                         user_action=user_action,
+    #                                         outfile=outfile,
+    #                                         outint=outint)
     
     # plot final result
     plot_solution.update(u, x, t)

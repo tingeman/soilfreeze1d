@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan')
     Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
     
     # Thickness:    Thickness of the layer [m]
@@ -85,7 +85,7 @@ if __name__ == '__main__':
     # ... with no plotting since that will be much quicker
     #==========================================================================
                        
-    animate = False
+    animate = True
     t0 = 0*days         # Start time of the model    
     T = 10*365*days+t0  # The total calculation period
     
@@ -104,7 +104,7 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     # Print the time spent
     print 'Spin-up run, CPU time: {0:.3f} s'.format(cpu)
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     #==========================================================================
  
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='stefan', surface_z=-5.)
+    Layers = soilfreeze1d.new_layered_model(type='stefan', surface_z=-5.)
     Layers.add(Thickness=5,   n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Top Soil')
     Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')
 
@@ -135,7 +135,7 @@ if __name__ == '__main__':
 
     animate = True  # Now do the animation  
     dt = 0.5*days   # The calculation time step
-    t0 = t[-1]      # Set start time to the end time of previous run
+    t0 = t          # Set start time to the end time of previous run
     T = 365*days+t0 # The total calculation period is one year
 
     # Set up result output 
@@ -164,7 +164,7 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     # Print the time spent
     print 'Final run, CPU time: {0:.3f} s'.format(cpu)    

@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Apr 20 01:06:32 2016
-
 @author: thin
+
+===============================================================================
+
+This model script illustrates the use of the soilfreeze1d module for 
+calculating the thermal regime in a 1D model with one layer using the stefan 
+solution (phase change occurs linearly over a specified temperature interval).
+
+The model domain is initialized with a piece wise linear temperature,
+illustrating how the DistanceInterpolator class may be 
+has an initial termperature of -2C at all nodes, and the 
+model is forced by a harmonic temperature variation at the upper boundary. 
+The lower boundary has a specified constant gradient of 0.08333 C/m.
+Results will be written to the file model1_results.txt at a daily interval.
+
+===============================================================================
+
 """
 
 # import standard pythom modules
@@ -24,7 +38,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan')
     Layers.add(Thickness=30,  n=0.10, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
     
     # Thickness:    Thickness of the layer [m]
@@ -98,7 +112,7 @@ if __name__ == '__main__':
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
     # Print the time spent
     print 'CPU time: {0:.3f} s'.format(cpu)
