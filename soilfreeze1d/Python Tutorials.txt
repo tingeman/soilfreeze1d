@@ -1,0 +1,25 @@
+General Python tutorial:
+https://en.wikibooks.org/wiki/A_Beginner%27s_Python_Tutorial
+(There are many others available - google is your friend!)
+
+
+A very basic tutorial for making simple plots using matplotlib:
+http://matplotlib.org/users/pyplot_tutorial.html
+
+
+Look at the package numpy:
+
+dat = numpy.loadtxt('filename.txt', skiprows=1, delimiter=';')    # For reading the data in the file 'filename.txt'
+                                                                  # and returning a numpy array with the name 'dat'
+
+numpy.array     # the basic numpy array construct
+numpy.max       # function/method to calculate the maximum of an array (along rows or columns, see numpy help)
+numpy.min       # function/method to calculate the minimum of an array (along rows or columns, see numpy help)
+numpy.mean      # function/method to calculate the average of an array (along rows or columns, see numpy help)
+
+Use these commands to calculate and plot the trumpet of your temperature model
+over the course of one year.
+The easiest will be to ensure through the model setup that the data file only
+contains results for one year. 
+Slicing can be relatively easily done with numpy arrays, but that is another
+abstraction layer.... you are welcome to try!

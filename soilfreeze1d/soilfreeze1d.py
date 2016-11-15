@@ -41,7 +41,9 @@ store solutions, etc.
 import pdb
 import time
 import os.path
+import warnings
 import fractions
+import decimal
 import numpy as np
 import matplotlib
 #matplotlib.use('Qt4Agg')
@@ -118,7 +120,7 @@ class TimeInterpolator(object):
     Usage:
     
     # Initialization
-    time_interp = TimeInterpolator(0, times, temperatures)
+    time_interp = TimeInterpolator(times, temperatures)
     
     # Get interpolated temperature at t=27.15
     time_interp(27.15)
@@ -130,7 +132,7 @@ class TimeInterpolator(object):
     time_interp.reset()
     """
 
-    def __init__(self, x, xp, fp):
+    def __init__(self, xp, fp, x=0):
         
         self.xp = xp       # interpolation x-values (times)
         self.fp = fp       # interpolation y-values (temperatures)
@@ -381,6 +383,9 @@ class LayeredModel(object):
 # Could also make a separate Convergence class, which would handle all
 # about convergence tests and keep track of iterations and when to 
 # step time or change time step...
+
+class LayeredModel_std(LayeredModel):
+    pass
         
 class LayeredModel_unfrw_swi(LayeredModel):
     _descriptor = {'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha', 'beta', 'Tf', 'Soil_type'), 
@@ -608,6 +613,85 @@ class LayeredModel_stefan(LayeredModel):
         return C_f*(1-phi)+C_t*(phi)
         
 
+        
+        
+class ConvergenceCriteria(object):
+    unit = ''
+    def __init__(self, threshold=0.05, max_iter=5):
+        self.threshold = threshold
+        self.max_iter = max_iter
+        self.iteration = -1
+        self.change = None
+    
+    def calc_change(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
+        return None
+    
+    def has_converged(self, u_0, u_1, unfrw_0, unfrw_1, dt_fraction):
+        self.change = self.calc_change(u_0, u_1, unfrw_0, unfrw_1, dt_fraction)
+
+        if np.max(self.change) < self.threshold:
+            return True
+        else:
+            return False
+    
+    def iterator(self):
+        while self.iteration < self.max_iter:
+            self.iteration += 1
+            yield self.iteration
+
+    def reset_iterator(self):
+        self.iteration = -1
+        
+    def show(self):
+        success = False
+        attempts = 0
+        while success == False and attempts < 10:
+            try:
+                if self.unit == '%':
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
+                else:
+                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+                success = True
+            except:
+                pass
+            attempts += 1
+        #print "Max = {1:.8f} {0},   Min = {2:.8f} {0} ".format(self.unit, np.max(self.change), np.min(self.change))
+        
+    
+
+class ConvCritNoIter(ConvergenceCriteria):
+    def has_converged(self, *args):
+        return True
+
+
+class ConvCritUnfrw1(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return (u_1-u_0)/u_0
+
+        
+class ConvCritUnfrw2(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/u_0)
+
+        
+class ConvCritUnfrw3(ConvergenceCriteria):
+    unit = '%'
+    def calc_change(self, u_0, u_1, *args):
+        return np.abs((u_1-u_0)/(u_0+273.15))
+        
+        
+class ConvCritUnfrw4(ConvergenceCriteria):
+    unit = 'C'
+    def calc_change(self, u_0, u_1, uw_0, uw_1, dt_fraction):
+        return np.abs(u_1-u_0)/np.float(dt_fraction)
+
+        
+        
+        
+        
+        
 def new_layered_model(type='', **kwargs):
     """Function to instantiate a layered model based on the type passed."""
     
@@ -622,7 +706,9 @@ class SolverTime(object):
     """
     
     def __init__(self, t0, dt, dt_min=360, optimistic=False):
-        self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = fractions.Fraction(t0).limit_denominator()
+        #self.time = decimal.Decimal(round(t0, 8))
+        self.time = np.float64(t0)
         self.previous_time = None
         self.dt_max = fractions.Fraction(dt).limit_denominator()
         self.dt_min = dt_min
@@ -630,7 +716,7 @@ class SolverTime(object):
         self.dt = self.dt_max*self.dt_fraction
         self.step_up_allowed = False
         self.optimistic = optimistic
-        self._o_counter = 0        
+        self._o_counter = 0
         
     def _is_power2(self, num):
         """Tests if num is a power of two."""
@@ -643,6 +729,10 @@ class SolverTime(object):
         time step.)
         
         """
+        
+        #if self.time == 33570196.875:
+        #    pdb.set_trace()
+        
         if self.optimistic and self._o_counter > 1:
             # If we are allowed to be optimistic, set step-up flag if the
             # last two steps did not result in a step size decrease.
@@ -717,45 +807,76 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  Tinit=lambda x: -2., 
                  ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
                  user_action=None,
+                 conv_crit=None,
                  outfile='model_result.txt',
                  outint=1*days,
-                 silent=False):
-    """Full solver for the model problem using the theta based finite difference 
+                 silent=False,
+                 show_solver_time=True):
+    """Uniform grid solver using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
     
-    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-    lb_type=2   Neumann type lower boundary condition (specified gradient)    
-    grad        The gradient [K/m] to use for the lower boundary
+    Layers       LayeredModel (or subclass) instance defining layer parameters
+    Nx           Number of equidistant grid points in domain
+    dt           The maximum permissible time step [s]
+    t_end        The end time of the model [s]
+    t_0          The starting time of the model [s]
+    dt_min       The minumum permissible time step [s]
+    theta        Parameter determining the type of finite difference solution.
+                     theta = 0:   Forward Euler solution
+                     theta = 0.5: Crank-Nicholson solution
+                     theta = 1:   Backward Euler solution
+    Tinit        Function defining initial temperatures at all node points 
+                     (takes depth as input argument)
+    ub           Function returning the upper boundary temperature for any point in time. 
+                     (takes time [s] as input argument)
+    lb           Function returning the lower boundary value for any point in time. 
+                     (takes time [s] as input argument)
+    lb_type      Flag to set the type of lower boundary values:
+                     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+                     lb_type=2   Neumann type lower boundary condition (specified gradient)    
+    grad         The gradient [K/m] to use for the lower boundary (presently not a function)
+    user_action  Function to be called at every iteration, can handle any user plotting etc.
+    conv_crit    ConvergenceCriteria (or subclass) instance defining the convergence
+                     criteria for iterative search for unfrozen water content.
+    outfile      Filename of the output data file
+    outint       Frequency of data output [s]
+    silent       Flag to determine if status messages are written to stdout.
+    show_solver_time    If silent, solver time may still be printed to indicate progress.
     """
-    
+
     tstart = time.clock()
     
+    dt_stats = {}
+    iter_stats = {}
+    
+    if conv_crit is None:
+        if Layers.parameter_set in ['std','stefan']:
+            conv_crit = ConvCritNoIter()
+        else:
+            conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
+            
     L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
     dx = x[1] - x[0]
     
-    #Nt = int(round((t_end-t0)/float(dt)))
-    
-    u   = np.zeros(Nx+1)   # solution array at t[tid+1]
-    u_1 = np.zeros(Nx+1)   # solution at t[tid]
-    u_bak = np.zeros(Nx+1)   # solution at t[tid+1], result from previous iteration
+    u   = np.zeros(Nx)   # solution array at t[tid+1]
+    u_1 = np.zeros(Nx)   # solution at t[tid]
+    u_bak = np.zeros(Nx)   # solution at t[tid+1], result from previous iteration
 
-    dudT = np.ones(Nx+1)*-999.   # will hold derivative of unfrozen water
-    #dT = np.ones(Nx+1)*-999.     # will hold vertical temperature difference
-    #                             # averaged over two cells except for first and last.
+    dudT = np.ones(Nx)*-999.   # will hold derivative of unfrozen water
     
     # Representation of sparse matrix and right-hand side
-    diagonal = np.zeros(Nx+1)
-    lower    = np.zeros(Nx)
-    upper    = np.zeros(Nx)
-    b        = np.zeros(Nx+1)
-    A_m      = np.zeros(Nx)
-    B_m      = np.zeros(Nx+1)
-    C_m      = np.zeros(Nx)
-    unfrw_u  = np.zeros(Nx+1)
-    unfrw_u1 = np.zeros(Nx+1)
+    diagonal = np.zeros(Nx)
+    lower    = np.zeros(Nx-1)
+    upper    = np.zeros(Nx-1)
+    b        = np.zeros(Nx)
+    A_m      = np.zeros(Nx-1)
+    B_m      = np.zeros(Nx)
+    C_m      = np.zeros(Nx-1)
+    unfrw_u  = np.zeros(Nx)
+    unfrw_u1 = np.zeros(Nx)
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
@@ -800,14 +921,17 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
     else:
         if not silent: print "Using standard parameters"
-        k_th = Layers.pick_values(x, 'k')
-        C_th = Layers.pick_values(x, 'C')
+        k_eff = Layers.pick_values(x, 'k')
+        C_eff = Layers.pick_values(x, 'C')
+        k_th = np.nan
+        C_th = np.nan
         k_fr = np.nan
         C_fr = np.nan
-        #n = Layers.pick_values(x, 'n')
+        phi = 1.
+        unfrw_u1 = 0.
     
     # Set initial condition
-    for i in range(0,Nx+1):
+    for i in range(0,Nx):
         u_1[i] = Tinit(x[i])
 
     u = u_1 + 0.001    # initialize u for finite differences
@@ -821,26 +945,33 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
        
     
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    iter1 = 0    
+    step = 0    
+    if silent and show_solver_time:
+        print 'day:' + ' '*12,
     
     # Time loop    
-    while solver_time() < t_end:
-        convergence = False        
-        iter1 += 1        
+    while solver_time() < t_end:      
+        step += 1        
         
         # u_1 holds the temperatures at time step n
         # u   will eventually hold calculated temperatures at step n+1
         
         u_bak = u_1 
         
-        if not silent:
-            print '{0:6d}, t: {1:10.0f}, dtf: {2:>7s}   '.format(iter1, solver_time()/(1*days), solver_time.dt_fraction) ,
-        
+        try:
+            if not silent:
+                print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+            elif show_solver_time:
+                print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+        except:
+            pass
+                
         if Layers.parameter_set == 'std':
-            phi = 1.  # for standard solution there is no phase change
-            k_eff = k_th
-            C_eff = C_th
-            unfrw_u1 = 0.
+            #phi = 1.  # for standard solution there is no phase change
+            #k_eff = k_th
+            #C_eff = C_th
+            #unfrw_u1 = 0.
+            pass
         else:
             if Layers.parameter_set == 'unfrw_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
@@ -867,37 +998,38 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         F = solver_time.dt/(2*dx**2)        
 
 
-        if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-            maxiter2 = 5
-        else:
-            maxiter2 = 1
-
-        
-        for iter2 in xrange(maxiter2):
+        # Iterative scheme for estimating unfrozen water content
+        convergence = False
+        conv_crit.reset_iterator()
+        for it in conv_crit.iterator():
             
             if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-                # NEW APPROACH TRYING AN ITERATION SCHEME
-                if iter2 == 0:
+                if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
                     C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
                     C_add = C_add_1
-                    #print "I:{0:.2f}".format(C_add[10]),                    
-                    
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
                     # difference for the unfrozen water content.
+
+                    # The latent heat contribution is estimated based on
+                    # a finite difference, where the temperature change
+                    # is non-zero, and the slope of the unfrozen water
+                    # content curve where the temperature change is
+                    # exactly zero (produces infinite result the finite
+                    # difference).
                     
-                    #dT = (u-u_1)
-                    dudT = (unfrw_u-unfrw_u1)/(u-u_1)
-                    
+                    # Temporarily ignore division by zero warning.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        dudT = (unfrw_u-unfrw_u1)/(u-u_1)
+                                        
                     C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
-                    #print "*:{0:.2f}".format(C_add[10]),                    
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
-                #print "C:{0:.2f}".format(C_app[10]),
                 
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
@@ -906,8 +1038,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 C_app = C_eff
             
-            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)):
-                pdb.set_trace()
+            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)) or np.any(C_app <= 0):
+                raise ValueError('Invalid NaN, Inf or zero value encountered in apparent heat capacity!')
             
             # Compute diagonal elements for inner points
             A_m       = F*(k_eff[1:]+k_eff[0:-1])/C_app[1:]
@@ -915,11 +1047,10 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
             
             # Compute diagonal elements for lower boundary point
-            A_N       = F*(k_eff[Nx]+k_eff[Nx-1])/C_app[Nx]    
-            B_N       = F*(k_eff[Nx-1]+3*k_eff[Nx])/C_app[Nx]
-            C_N       = F*(2*k_eff[Nx])/C_app[Nx]    
+            A_N       = F*(k_eff[Nx-1]+k_eff[Nx-2])/C_app[Nx-1]    
+            B_N       = F*(k_eff[Nx-2]+3*k_eff[Nx-1])/C_app[Nx-1]
+            C_N       = F*(2*k_eff[Nx-1])/C_app[Nx-1]    
 
-            
             # Compute sparse matrix (scipy format)
             diagonal[1:-1] = 1 + theta*B_m[1:-1]
             lower = -theta*A_m  #1
@@ -931,23 +1062,22 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                diagonal[Nx] = 1
+                diagonal[Nx-1] = 1
                 lower[-1] = 0
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
-                diagonal[Nx] = 1
+                diagonal[Nx-1] = 1
                 lower[-1] = -1
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
-                diagonal[Nx] = 1 + theta*B_N
+                diagonal[Nx-1] = 1 + theta*B_N
                 lower[-1] = -theta*(A_N+C_N)  
             else:
                 raise ValueError('Unknown lower boundary type')
 
             U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
-                                   offsets=[0, -1, 1], shape=(Nx+1, Nx+1),
+                                   offsets=[0, -1, 1], shape=(Nx, Nx),
                                    format='csr')
-            #print A.todense()
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
@@ -963,77 +1093,120 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             elif lb_type == 3:
                 # First order Neumann solution for lower boundary
                 b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
-            
-            
+
+            # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
+            # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
                 unfrw_u = 0.
-                convergence = True
+                convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
                 if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
                     unfrw_u = n*phi_u    
                     
-                    if iter2 != 0:       # Always do at least 1 iteration
-                        change = (u-u_bak)/u_bak
+                    if conv_crit.iteration != 0:       # Always do at least 1 iteration
+                        convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
+                        
                         if not silent:
-                            print "{0:.8f}%".format(np.max(change)*100),
-            
-                        if np.max(change) < 0.00001:
-                            # break iteration loop since no significant change in 
-                            # temperature is observed.
-                            convergence = True
-                            u_bak = u.copy()
-                            break    
+                            conv_crit.show()
                     
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n*phi_u
-                    convergence = True
+
+                    convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             
             u_bak = u.copy()
-            
+
+            if convergence:
+                # break iteration loop since no significant is observed.
+                break    
 
         if not convergence:
             if not silent:
                 print "No convergence.",
-            success = solver_time.decrease_step()
+                
+            timestep_decreased = solver_time.decrease_step()
+            
             # We decrease time step, because we did not see
-            # sufficient improvement within maxiter2 iterations.
+            # sufficient improvement within the maximum numberof iterations.
+            
             # Since solver_time is optimistic, it will automatically
-            # increase time step gradually.
+            # increase time step gradually, whenever possible.
             
-            # If success is False, we have reached the minimum time step.            
+            # If timestep_decreased is False, we have reached the minimum time step.            
+            # do not step forward in time, we need to recalculate for time t+dt
+            # where dt is the new decreased time step.
             
-            # do not step forward in time, we need to recalculate for time n+dt
-            
-            if success:
+            if timestep_decreased:
                 if not silent:
                     print "dt reduced."
             else:
                 if not silent: 
                     print "Reduction impossible.",
 
-        if convergence or not success:
+        if convergence or not timestep_decreased:
             # We had convergence, prepare for next time step.             
             if not silent: 
-                print "Done! {0:d} iters".format(iter2)
+                print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            solver_time.step()        
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
+            solver_time.step()
             
-            u[0] = ub(solver_time())            
+            # Store some statistics for time step and number of iterations.
+            if solver_time.dt not in dt_stats:
+                dt_stats[solver_time.dt] = {'N': 1, 'max_iter': conv_crit.iteration}
+            else:
+                dt_stats[solver_time.dt]['N'] += 1
+                if conv_crit.iteration > dt_stats[solver_time.dt]['max_iter']:
+                    dt_stats[solver_time.dt]['max_iter'] = conv_crit.iteration
+            
+            if conv_crit.iteration not in iter_stats:
+                iter_stats[conv_crit.iteration] = 1
+            else:
+                iter_stats[conv_crit.iteration] += 1
+            
+            # update upper boundary temperature
+            u[0] = ub(solver_time())         
+
+            # Perform any defined user action
             if user_action is not None:
                 user_action(u, x, solver_time())
     
+            # Add data to data file buffer
             datafile.add(solver_time(), ub(solver_time()), u)
             
+            # Prepare for next time step...
             u_1, u = u, u_1
     
+    # The model run has completed, now wrap up and print/output results
+    
+    # Screen output
+    try:
+        if not silent:
+            print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+        elif show_solver_time:
+            print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+    except:
+        pass
+    
+    # Output statistics to datafile.
     datafile.flush()
     tstop = time.clock()    
-    datafile.add_comment('cpu: {0}'.format(tstop-tstart))
+    datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
+    
+    datafile.add_comment('--- Step-size statistics ----')
+    for key in sorted(dt_stats.keys()):
+        datafile.add_comment('{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'], dt_stats[key]['max_iter']))
+    
+    datafile.add_comment('--- Iterations statistics ----')    
+    for key in sorted(iter_stats.keys()):
+        datafile.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))        
+    
     return u, x, solver_time(), tstop-tstart
 
 
