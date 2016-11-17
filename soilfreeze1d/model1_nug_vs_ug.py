@@ -27,10 +27,9 @@ import warnings
 import soilfreeze1d   # import the module containing the Finite Difference 
                       # modelling code and supporting functions.
 
-
 # Define variables and constants
 days = 24*3600  # Define a constant for conversion from days to seconds
-
+hours = 1*3600  # Define a constant for conversion from hours to seconds
 
 # Define any supporting functions
 
@@ -54,7 +53,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan')
     Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
 
     # Thickness:    Thickness of the layer [m]
@@ -81,9 +80,13 @@ if __name__ == '__main__':
         xsum += xtmp[-1]*dx0
     
     x = np.cumsum(xtmp)*dx0+Layers.surface_z
-    x = x[:-1]
+    x[-1] = Layers.z_max
+    #x[-2] = (x[-3]+x[-1])/2.
+    #x = x[:-1]
     
-    dt = 1*days   # The calculation time step
+    x = np.unique(np.round(x,2))
+    
+    dt = 1*hours   # The calculation time step
     T = 10*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
@@ -110,7 +113,7 @@ if __name__ == '__main__':
     
     # Set up result output 
     outfile = 'model1_nug_results.txt' # Name of the result file
-    outint = 1*days  # The interval at which results will be written to the file    
+    outint = 10*days  # The interval at which results will be written to the file    
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
@@ -133,28 +136,33 @@ if __name__ == '__main__':
                                                  ub=surf_T, lb_type=2, grad=grad,
                                                  user_action=user_action,
                                                  outfile=outfile,
-                                                 outint=outint)
+                                                 outint=outint,
+                                                 silent=True,
+                                                 show_solver_time=False)
     
     # plot final result
     plot_solution.update(u, x, t)
     
-    print 'CPU time:', cpu
+    print 'CPU time nug:', cpu
     
     
     
     
-    Nx = 100
+    Nx_ug = 100
     
     # Set up result output 
     outfile = 'model1_ug_results.txt' # Name of the result file
-    outint = 1*days  # The interval at which results will be written to the file    
     
     # Call Finite Difference engine    
-    u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
+    u_ug, x_ug, t_ug, cpu_ug = soilfreeze1d.solver_theta(Layers, Nx_ug, dt, T, 
                                                  Tinit=initialTemperature, 
                                                  ub=surf_T, lb_type=2, grad=grad,
                                                  user_action=user_action,
                                                  outfile=outfile,
-                                                 outint=outint)
+                                                 outint=outint,
+                                                 silent=True,
+                                                 show_solver_time=False)
     
-    plot_solution.add(u, x, t, 'b')
+    plot_solution.add(u_ug, x_ug, t_ug, 'b')
+    
+    print 'CPU time ug:', cpu_ug
