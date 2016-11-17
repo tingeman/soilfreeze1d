@@ -133,6 +133,7 @@ if __name__ == '__main__':
                                                  user_action=user_action,
                                                  outfile=outfile,
                                                  outint=outint,
+                                                 outnodes=[0,1,2,3,5,8,13,21],
                                                  silent=silent,
                                                  show_solver_time=False)
     
