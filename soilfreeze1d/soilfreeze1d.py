@@ -194,15 +194,19 @@ class FileStorage(object):
     
     """
     
-    def __init__(self, filename, depths, interval, decimals=6, 
+    def __init__(self, filename, interval=1., depths=None, nodes=None, decimals=6, 
                  buffer_size=20, append=False):
         self.filename = filename
         self.append = append
-        self.depths = depths
         self.interval = interval
+        self.depths = depths
+        self.nodes = nodes
         self.decimals = decimals
         self.buffer_size = buffer_size
-        self._buffer = np.ones((buffer_size, len(depths)+2))
+        if self.nodes is None:
+            self._buffer = np.ones((buffer_size, len(self.depths)+2))
+        else:
+            self._buffer = np.ones((buffer_size, len(self.nodes)+2))
         self.count = 0
         self.initialize()
     
@@ -222,13 +226,14 @@ class FileStorage(object):
             f.write('; {0:12s}'.format('SurfTemp[C]'))
             # Loop over all depths 
             for did in xrange(len(self.depths)):
-                # write separator and temperature
-                f.write('; {0:+8.3f}'.format(self.depths[did]))
+                if self.nodes is not None and did in self.nodes:
+                    # write separator and temperature, if node is to be output
+                    f.write('; {0:+8.3f}'.format(self.depths[did]))
             # write line termination
             f.write('\n')
         # file is automatically closed when using the "with .. as" construct
                 
-    def add(self, t, st, u):
+    def add(self, t, ub, u):
         """Adds the current time step, if t is a multiple of the
         specified interval."""
         
@@ -237,8 +242,11 @@ class FileStorage(object):
         if np.mod(t, self.interval) == 0:
             # t is a multiple of interval...
             self._buffer[self.count, 0] = t  # store time
-            self._buffer[self.count, 1] = st  # store time
-            self._buffer[self.count, 2:] = u  # store results 
+            self._buffer[self.count, 1] = ub  # store upper boundary value
+            if self.nodes is not None:
+                self._buffer[self.count, 2:] = u[self.nodes]  # store results 
+            else:
+                self._buffer[self.count, 2:] = u  # store results 
             self.count += 1    # increment counter
             
             if self.count == self.buffer_size:
@@ -265,10 +273,14 @@ class FileStorage(object):
                 f.write('{0:16.3f}'.format(self._buffer[rid, 0])) 
                 f.write('; {0:+12.3f}'.format(self._buffer[rid, 1]))
                 # Loop over all the temperatures in the row
-                for cid in xrange(len(self.depths)):
-                    # write separator and temperature
-                    f.write('; {0:+8.3f}'.format(self._buffer[rid, cid+2]))
-                
+                if self.nodes is None:
+                    for cid in xrange(len(self.depths)):
+                        # write separator and temperature
+                        f.write('; {0:+8.3f}'.format(self._buffer[rid, cid+2]))
+                else:
+                    for cid in xrange(len(self.nodes)):
+                        # write separator and temperature
+                        f.write('; {0:+8.3f}'.format(self._buffer[rid, cid+2]))
                 # write line termination
                 f.write('\n')
         self.count = 0
@@ -810,6 +822,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                  conv_crit=None,
                  outfile='model_result.txt',
                  outint=1*days,
+                 outnodes=None,
                  silent=False,
                  show_solver_time=True):
     """Uniform grid solver using the theta based finite difference 
@@ -841,6 +854,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                      criteria for iterative search for unfrozen water content.
     outfile      Filename of the output data file
     outint       Frequency of data output [s]
+    outnodes     List of indices of nodes to output in results file
     silent       Flag to determine if status messages are written to stdout.
     show_solver_time    If silent, solver time may still be printed to indicate progress.
     """
@@ -939,7 +953,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     if user_action is not None:
         user_action(u_1, x, t0)
 
-    datafile = FileStorage(outfile, depths=x, 
+    datafile = FileStorage(outfile, depths=x, nodes=outnodes, 
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
@@ -1216,6 +1230,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                      conv_crit=None,
                      outfile='model_result.txt',
                      outint=1*days,
+                     outnodes=None,
                      silent=False,
                      show_solver_time=True,
                      use_sparse=False):
@@ -1227,6 +1242,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
     lb_type=2   Neumann type lower boundary condition (specified gradient)    
     grad        The gradient [K/m] to use for the lower boundary
+    outnodes    List of indices of nodes to output in results file
     """
     
     def calc_Dp(x):
@@ -2232,4 +2248,4 @@ def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.in
         
         
 if __name__ == '__main__':
-    test_FD_stefan_grad
+    test_FD_stefan_gra
