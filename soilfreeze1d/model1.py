@@ -71,12 +71,6 @@ if __name__ == '__main__':
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
 
-    # Example of a function that will give a constant
-    # upper boundary temperature
-    
-    #def surf_T(t):
-    #    return -2.
-    
     # Define the geothermal gradient (lower boundary)    
     grad=0.08333     # [K/m]
     
