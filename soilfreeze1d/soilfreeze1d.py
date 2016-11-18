@@ -225,10 +225,15 @@ class FileStorage(object):
             f.write('{0:16s}'.format('Time[seconds]'))
             f.write('; {0:12s}'.format('SurfTemp[C]'))
             # Loop over all depths 
-            for did in xrange(len(self.depths)):
-                if self.nodes is not None and did in self.nodes:
+            if self.nodes is not None:
+                for did in self.nodes:
                     # write separator and temperature, if node is to be output
                     f.write('; {0:+8.3f}'.format(self.depths[did]))
+            else:
+                for did in xrange(len(self.depths)):
+                    # write separator and temperature, if node is to be output
+                    f.write('; {0:+8.3f}'.format(self.depths[did]))
+                    
             # write line termination
             f.write('\n')
         # file is automatically closed when using the "with .. as" construct
