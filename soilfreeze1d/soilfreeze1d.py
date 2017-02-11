@@ -962,10 +962,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
-    # solver_time always holds the time of the time step
+    # solver_time always holds the time of the time-step
     # that is being calculated.
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    
     step = 0    
     solver_time.step()
     
@@ -1471,9 +1470,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
-    
+    # solver_time always holds the time of the time-step
+    # that is being calculated.
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    step = 0    
+    step = 0
+    solver_time.step()
+    
     if silent and show_solver_time:
         print 'day:' + ' '*12,
     
@@ -1600,7 +1602,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             G1[0,0] = 1
             G1[0,1:] = 0
             
-            d[0] = ub(solver_time())    # upper boundary conditions      
+            d[0] = ub(solver_time().previous_time)    # upper boundary conditions      
             
             # Insert lower boundary condition
             
@@ -1608,7 +1610,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 # Dirichlet solution for lower boundary
                 G1[-1,-1] = 1
                 G1[-1,:-2] = 0
-                d[-1] = lb(solver_time())  
+                d[-1] = lb(solver_time().previous_time)  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1,-1] = 1
@@ -1634,7 +1636,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             
             
             # Add upper boundary condition
-            u[0] = ub(solver_time()+solver_time.dt)    # upper boundary conditions      
+            u[0] = ub(solver_time())    # upper boundary conditions      
             
             # Add lower boundary condition
             
@@ -1642,7 +1644,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 # Dirichlet solution for lower boundary
                 G1[-1,-1] = 1
                 G1[-1,:-2] = 0
-                u[-1] = lb(solver_time()+solver_time.dt)  
+                u[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1,-1] = 1
@@ -1718,9 +1720,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            # Step time forward. Time step will be increased
-            # if possible by the optimistic stepping algorithm.
-            solver_time.step()
+             # Perform any defined user action
+            if user_action is not None:
+                user_action(u, x, solver_time())
+            
+             # Add data to data file buffer
+            datafile.add(solver_time(), ub(solver_time()), u)           
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1735,19 +1740,14 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 iter_stats[conv_crit.iteration] += 1
             
-            # update upper boundary temperature
-            u[0] = ub(solver_time())         
-
-            # Perform any defined user action
-            if user_action is not None:
-                user_action(u, x, solver_time())
-    
-            # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)
-            
             # Prepare for next time step...
             u_1, u = u, u_1
-    
+            
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
+            solver_time.step()
+
+            
     # The model run has completed, now wrap up and print/output results
     
     # Screen output
