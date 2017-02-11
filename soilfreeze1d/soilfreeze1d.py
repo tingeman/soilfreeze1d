@@ -962,9 +962,13 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
-    
+    # solver_time always holds the time of the time step
+    # that is being calculated.
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
+    
     step = 0    
+    solver_time.step()
+    
     if silent and show_solver_time:
         print 'day:' + ' '*12,
     
@@ -1099,12 +1103,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(solver_time())    # upper boundary conditions
+            b[0] = ub(solver_time.previous_time)    # upper boundary conditions
             
             # Add lower boundary condition
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                b[-1] = lb(solver_time())  
+                b[-1] = lb(solver_time.previous_time)  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 b[-1] = dx*grad
@@ -1112,9 +1116,28 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 # First order Neumann solution for lower boundary
                 b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
 
+            
             # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
+
+            # Add upper boundary condition
+            u[0] = ub(solver_time())    # upper boundary condition
+            
+            # Add lower boundary condition
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                u[-1] = lb(solver_time())  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                u[-1] = dx*grad
+            elif lb_type == 3:
+                # First order Neumann solution for lower boundary
+                u[-1] = u[-1] + (1-theta) * ((A_N+C_N)*u[-2] - B_N*u[-1]) + 2*C_N*dx*grad
+
+                
+            
+            
             # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
@@ -1171,9 +1194,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            # Step time forward. Time step will be increased
-            # if possible by the optimistic stepping algorithm.
-            solver_time.step()
+            # Perform any defined user action
+            if user_action is not None:
+                user_action(u, x, solver_time())
+            
+            # Add data to data file buffer
+            datafile.add(solver_time(), ub(solver_time()), u)
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1187,20 +1213,15 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 iter_stats[conv_crit.iteration] = 1
             else:
                 iter_stats[conv_crit.iteration] += 1
-            
-            # update upper boundary temperature
-            u[0] = ub(solver_time())         
 
-            # Perform any defined user action
-            if user_action is not None:
-                user_action(u, x, solver_time())
-    
-            # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)
-            
             # Prepare for next time step...
             u_1, u = u, u_1
-    
+
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
+            solver_time.step()
+
+            
     # The model run has completed, now wrap up and print/output results
     
     # Screen output
@@ -1604,12 +1625,43 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 raise ValueError('Unknown lower boundary type')
             
+            
             if use_sparse:
                 # Solve system of equations
                 u[:] = scipy.sparse.linalg.spsolve(G1, d)
             else:
                 u[:] = np.linalg.solve(G1, d)
+            
+            
+            # Add upper boundary condition
+            u[0] = ub(solver_time()+solver_time.dt)    # upper boundary conditions      
+            
+            # Add lower boundary condition
+            
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,:-2] = 0
+                u[-1] = lb(solver_time()+solver_time.dt)  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,-2] = -1
+                u[-1] = dx[-1]*grad
+            elif lb_type == 3:
+                # Second order Neumann solution for lower boundary
                 
+                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
+                
+                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
+                G1[-1,:] = Dp[-1,:]
+                u[-1] = grad
+            else:
+                raise ValueError('Unknown lower boundary type')
+
+
+
+            
             # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
