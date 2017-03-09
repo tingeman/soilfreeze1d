@@ -39,7 +39,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.LayeredModel(type='unfrw')
+    Layers = soilfreeze1d.new_layered_model(type='unfrw_thfr')
     Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     
@@ -56,7 +56,7 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    dx0 = 0.05
+    dx0 = 0.01
     dxf = 1.1
     
     Nx = 0
@@ -68,13 +68,9 @@ if __name__ == '__main__':
         xsum += xtmp[-1]*dx0
     
     x = np.cumsum(xtmp)*dx0+Layers.surface_z
-    x = x[:-1]
+    x[-1] = Layers.z_max
     
-    #Nx = 400
-    #x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
-    
-    
-    dt = 24*hours   # The calculation time step
+    dt = 6*hours   # The calculation time step
     T = 2*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
@@ -96,7 +92,7 @@ if __name__ == '__main__':
     
     # Set up result output 
     outfile = 'model4_nug_results.txt' # Name of the result file
-    outint = 1*days  # The interval at which results will be written to the file    
+    outint = 10*days  # The interval at which results will be written to the file    
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
@@ -115,19 +111,20 @@ if __name__ == '__main__':
                                              user_action=user_action,
                                              outfile=outfile,
                                              outint=outint,
-                                             silent=silent)
+                                             silent=silent,
+                                             show_solver_time=False)
     
     # plot final result
     plot_solution.update(u1, x1, t1)
 
-    print 'CPU time:', cpu1
+    print 'CPU time, nug: {0} s  (Nx: {1})'.format(cpu1, len(x1))
     
     # Define model domain properties
     Nx = 400        # The number of nodes in the model domain is Nx+1
     
     # Set up result output 
-    outfile = 'model1_ug_results.txt' # Name of the result file
-    outint = 1*days  # The interval at which results will be written to the file    
+    outfile = 'model4_ug_results.txt' # Name of the result file
+    outint = 10*days  # The interval at which results will be written to the file    
     
     # Call Finite Difference engine    
     u2, x2, t2, cpu2 = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
@@ -136,9 +133,11 @@ if __name__ == '__main__':
                                                  user_action=user_action,
                                                  outfile=outfile,
                                                  outint=outint,
-                                                 silent=silent)
+                                                 outnodes=[0,1,2,3,5,8,13,21],
+                                                 silent=silent,
+                                                 show_solver_time=False)
     
     plot_solution.add(u2, x2, t2, 'b')    
 
-    print 'CPU time:', cpu2
+    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu2, len(x2))
     
