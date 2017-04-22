@@ -1840,71 +1840,142 @@ class Visualizer_T_dT(object):
 
 
 class Visualizer_T(object):
+    """A class to handle automatic plotting of the model temperature distribution
+    during soilfreeze1d calculations.
+    """
+    
     def __init__(self, fig=None, ax1=None, z_max=np.inf, 
-                 Tmin=None, Tmax=None):
-        self.fig = fig
+                 Tmin=None, Tmax=None, figxy=(0,0)):
+        self.fignum = fig
+        self.fig = None
         self.ax1 = ax1
-        self.title = None
+        self.time_txt = None
+        self.line = None
+        self.vline = None
         self.z_max = z_max
         self.Tmin = Tmin
         self.Tmax = Tmax
-    
-    def initialize(self, u, x, t, Layers, name=''):
-        plt.figure(self.fig)
-
+        self.initialized = False
+        self.figxy = figxy
+        self.backend = matplotlib.get_backend()
+        if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt45gg']:
+            raise NotImplementedError('The matplotlib {0} backend is not supported. '
+                                      'Only Qt and TkAgg backends are supported.')
+        
+    def initialize(self, u, x, t, name='', figxy=None):
+        """Initialize the plot window. The initial condition of the model
+        domain is plotted, and preparations are done for fast updating
+        of the plot window using blitting.
+        
+        This initialize method must be invoked before the update method 
+        can be invoked.
+        """
+        plt.close(self.fignum)
+        
+        if figxy is not None:
+            self.figxy = figxy
+        
+        self.fig = plt.figure(self.fignum)
+        self.fig.clear()
+                
+        self.move_figure(self.figxy[0],self.figxy[1])
+            
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 1, 1)
+            #self.ax1.hold(False)
+        
+        self.ax1.clear()
             
-        self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
-
+        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
-        self.ax1.axvline(x=0, ls='--', color='k')
+        self.vline = self.ax1.axvline(x=0, ls='--', color='k')
         
-        plt.draw()
+        self.fig.canvas.draw_idle()
         plt.show(block=False)
 
-        self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
+        self.background = self.fig.canvas.copy_from_bbox(self.ax1.bbox)
             
-        self.ax1.plot(u, x, 'r-', marker='.', ms=5)
-        self.ax1.set_title('t=%f' % (t/(3600*24.)))
+        self.line = self.ax1.plot(u, x, 'r-', marker='.', ms=5)[0]
+        self.time_txt = self.ax1.text(0.95, 0.05, 't=%f' % (t/(3600*24.)),
+                                      horizontalalignment='right',
+                                      verticalalignment='center',
+                                      transform=self.ax1.transAxes)
         
-        self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
+        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
         
         if name:
-            self.title = plt.figure(self.fig).suptitle(name)        
-            
-        plt.draw()
+            self.title = self.fig.suptitle(name)        
+        
+        self.fig.canvas.draw_idle()
         plt.show(block=False)
-
+        plt.pause(0.01)
+        
+        self.initialized = True
+        print "VIZUALIZER INITIALIZED..."
 
     def __call__(self, u, x, t):
-        self.ax1.lines[0].set_xdata(u)
-        self.ax1.title.set_text('t=%f' % (t/(3600*24.)))
-
-        # restore background
-        plt.figure(self.fig).canvas.restore_region(self.background)
-
-        # redraw just the points
-        self.ax1.draw_artist(self.ax1.lines[0])
-        self.ax1.draw_artist(self.ax1.title)
-
-        # fill in the axes rectangle
-        plt.figure(self.fig).canvas.blit(self.ax1.bbox)
+        """Method to update the plot of model domain temperature.
+        The class .initialize() method must be called before 
+        updates to the plot can be accomplished.
+        """
+        self.line.set_xdata(u)
+        self.time_txt.set_text('t=%f' % (t/(3600*24.)))
         
+        # restore background
+        self.fig.canvas.restore_region(self.background)
+
+        # redraw selected artists
+        self.ax1.draw_artist(self.line)
+        self.ax1.draw_artist(self.vline)
+        self.ax1.draw_artist(self.time_txt)
+        
+        # redraw the figure canvas
+        if self.backend in ['TkAgg']:
+            self.fig_redraw = self.fig.canvas.blit(self.ax1.bbox)
+        else:
+            self.fig_redraw = self.fig.canvas.update()
+        
+        self.fig.canvas.flush_events()
         
     def update(self, u, x, t):
         self(u, x, t)       
 
     def add(self, u, x, t, color='b'):
+        """Adds an aditional temperature distribution to the figure. 
+        This additional distribution will not be redrawn during a
+        an update call.
+        """
         plt.figure(self.fig)
-        
+
+        #self.ax1.hold(True)            
         self.ax1.plot(u, x, color+'-', marker='.', ms=5)
+        #self.ax1.hold(True)
         
         plt.draw()
         plt.show(block=False)
+    
+    def show(self, block=True):
+        plt.show(block=block)
+    
+    def move_figure(self, x, y):
+        """Move figure's upper left corner to pixel (x, y)"""
+        mngr = self.fig.canvas.manager            
+        
+        if self.backend == 'TkAgg':
+            mngr.window.wm_geometry("+{0}+{1}".format(x,y))
+        elif self.backend == 'WXAgg':
+            mngr.window.SetPosition((x,y))
+        else:
+            # This works for QT and GTK
+            # You can also use window.setGeometry
+            try:
+                mngr.window.move(x,y)
+            except:
+                pass
+
         
     
 # --------------------------------------------------------------
