@@ -38,7 +38,7 @@ can add visualization, error computations, data analysis,
 store solutions, etc.
 """
 
-import ipdb as pdb
+#import ipdb as pdb
 import time
 import os.path
 import warnings
@@ -904,7 +904,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
@@ -919,7 +919,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_w = Layers.pick_values(x, 'C_w')
         k_i = Layers.pick_values(x, 'k_i')
         C_i = Layers.pick_values(x, 'C_i')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
@@ -932,7 +932,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         #interval = Layers.interval
         #Tf = Layers.Tf
@@ -1000,22 +1000,21 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = n*phi
+                unfrw_u1 = _n*phi
                 
             elif Layers.parameter_set == 'unfrw_swi':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
                 
-                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
-                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
-                unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, _n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, _n, phi)
+                unfrw_u1 = _n*phi
                 
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = n*phi
-        
+                unfrw_u1 = _n*phi
         
         F = solver_time.dt/(2*dx**2)        
 
@@ -1028,7 +1027,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
-                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add_1 = L * _n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
                     C_add = C_add_1
                 else:
                     # A previous iteration exist, so an estimate of the
@@ -1055,7 +1054,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
                                                 greater_equal(u, Tf-interval)), 
-                                 C_eff + L*n/interval, C_eff)
+                                 C_eff + L*_n/interval, C_eff)
             else:
                 C_app = C_eff
             
@@ -1115,7 +1114,6 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 # First order Neumann solution for lower boundary
                 b[-1] = u_1[-1] + (1-theta) * ((A_N+C_N)*u_1[-2] - B_N*u_1[-1]) + 2*C_N*dx*grad
 
-            
             # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
@@ -1145,7 +1143,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
-                    unfrw_u = n*phi_u    
+                    unfrw_u = _n*phi_u    
                     
                     if conv_crit.iteration != 0:       # Always do at least 1 iteration
                         convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
@@ -1155,7 +1153,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
-                    unfrw_u = n*phi_u
+                    unfrw_u = _n*phi_u
 
                     convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             
@@ -1790,10 +1788,8 @@ class Visualizer_T_dT(object):
 
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 2, 1)
-            self.ax1.hold(False)
             
         self.ax1.plot(u, x, 'r-', marker='.', ms=5)
-        self.ax1.hold(True)
         self.ax1.axvline(x=0, ls='--', color='k')
         self.ax1.set_title('t=%f' % (t/(3600*24.)))
         
@@ -1803,10 +1799,8 @@ class Visualizer_T_dT(object):
         
         if self.ax2 is None: 
             self.ax2 = plt.subplot(1, 2, 2)
-            self.ax2.hold(False)
             
         self.ax2.plot(np.diff(u[:]),np.arange(len(u)-1),'b-')
-        self.ax2.hold(True)
         self.ax2.axvline(x=0, ls='--', color='k')
         self.ax2.set_ylim([0, len(u)-1])
         self.ax2.invert_yaxis()
@@ -1860,7 +1854,6 @@ class Visualizer_T(object):
 
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 1, 1)
-            self.ax1.hold(False)
             
         self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
 
@@ -1874,7 +1867,6 @@ class Visualizer_T(object):
         self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
             
         self.ax1.plot(u, x, 'r-', marker='.', ms=5)
-        self.ax1.hold(True)
         self.ax1.set_title('t=%f' % (t/(3600*24.)))
         
         self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
@@ -1908,16 +1900,12 @@ class Visualizer_T(object):
 
     def add(self, u, x, t, color='b'):
         plt.figure(self.fig)
-
-        self.ax1.hold(True)            
+        
         self.ax1.plot(u, x, color+'-', marker='.', ms=5)
-        self.ax1.hold(True)
         
         plt.draw()
         plt.show(block=False)
-    
         
-
     
 # --------------------------------------------------------------
 #
@@ -1990,8 +1978,6 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     if fh is None:
         fh = ax.get_figure()
 
-    hstate = ax.ishold()
-
     data = np.loadtxt(fname, skiprows=1, delimiter=';')
     with open(fname, 'r') as f:
         line = f.readline()
@@ -2013,8 +1999,7 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     ax.invert_yaxis()
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position('top') 
-    ax.tick_params(axis='both', direction='out')
-    ax.hold(hstate)    
+    ax.tick_params(axis='both', direction='out')  
 
     ax.set_ylabel('Depth [m]')
     ax.set_xlabel('Temperature [C]')
@@ -2062,8 +2047,6 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     if fh is None:
         fh = ax.get_figure()
 
-    hstate = ax.ishold()
-
     if fname is not None:
         data = np.loadtxt(fname, skiprows=1, delimiter=';')
         with open(fname, 'r') as f:
@@ -2087,7 +2070,7 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     xx, yy  = np.meshgrid(time, depths)
 
     cf = ax.contourf(xx, yy, data.T, levels, cmap=cmap)
-    ax.hold(True)
+    
     if cont_levels is not None:
         ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
         cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C',fontsize=12, colors='k')
@@ -2101,7 +2084,6 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position('top') 
     ax.tick_params(axis='both', direction='out')
-    ax.hold(hstate)
     #ax.xaxis_date()
 
     cbax = plt.colorbar(cf, orientation='horizontal', ax=cax, shrink=1.0)
@@ -2305,4 +2287,5 @@ def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.in
         
         
 if __name__ == '__main__':
-    test_FD_stefan_gra
+    #test_FD_stefan_gra
+    pass
