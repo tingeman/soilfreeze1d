@@ -1,8 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Created on Wed Apr 20 01:06:32 2016
-
 @author: thin
+
+===============================================================================
+
+This model script illustrates the use of the soilfreeze1d module for
+calculating the thermal regime in a two-layer soil column.
+This model is implemented using a power function for the unfrozen water
+content.
+
+The model is forced by a harmonic temperature variation at the upper boundary. 
+The lower boundary has a specified constant gradient of 0.02 C/m.
+Results will be written to the file model1_results.txt at a daily interval.
+
+===============================================================================
+
 """
 
 # import standard pythom modules
@@ -63,7 +75,7 @@ if __name__ == '__main__':
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
 
     # Define the geothermal gradient (lower boundary)    
-    grad=0.08333     # [K/m]
+    grad=0.02     # [K/m]
     
     # Set up plotting
     fignum  = 99    # Plot results in figure number 99    
@@ -80,12 +92,12 @@ if __name__ == '__main__':
     outint = 1*days  # The interval at which results will be written to the file    
     
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
     dx = x[1] - x[0]
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
+    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
         
     # Switch animation on or off
     if animate:
@@ -104,4 +116,9 @@ if __name__ == '__main__':
     # plot final result
     plot_solution.update(u, x, t)
     
+    print ' '
+    print ' '
     print 'CPU time:', cpu
+    print ' '
+    print 'Close figure to return focus to the terminal...'
+    plot_solution.show()

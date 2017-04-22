@@ -25,7 +25,7 @@ if __name__ == "__main__":
     setup(
         zip_safe=False,
         name="soilfreeze1d",
-        version="0.5",
+        version="0.6",
         description="Package for computing ground temperatures using finite difference method.",
         author="Thomas Ingeman-Nielsen",
         author_email="tin@byg.dtu.dk",

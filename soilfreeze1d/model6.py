@@ -82,12 +82,12 @@ if __name__ == '__main__':
     outint = 1*days  # The interval at which results will be written to the file    
     
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
     dx = x[1] - x[0]
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
+    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
     
     # Switch animation on or off
     if animate:
@@ -102,7 +102,7 @@ if __name__ == '__main__':
     # Call Finite Difference engine    
     u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
                                              Tinit=initialTemperature, 
-                                             ub=surf_T, lb_type=2, grad=grad,
+                                             ub=surf_T, lb_type=3, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
                                              outint=outint,

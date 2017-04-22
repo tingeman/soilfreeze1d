@@ -96,7 +96,7 @@ if __name__ == '__main__':
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
+    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
         
     # Switch animation on or off
     if animate:

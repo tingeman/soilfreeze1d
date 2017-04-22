@@ -66,26 +66,8 @@ if __name__ == '__main__':
     # Tf:           Freezing point [C]  default = 0C
     # soil_type:    Character string for identification, not used by model
     
-    
     # Define model domain properties
-    dx0 = 0.05
-    dxf = 1.1
-    
-    Nx = 0
-    xtmp = [0, 1]
-    xsum = dx0
-    while xsum<(Layers.z_max-Layers.surface_z):
-        Nx += 1
-        xtmp.append(dxf**Nx)
-        xsum += xtmp[-1]*dx0
-    
-    x = np.cumsum(xtmp)*dx0+Layers.surface_z
-    x[-1] = Layers.z_max
-    #x[-2] = (x[-3]+x[-1])/2.
-    #x = x[:-1]
-    
-    x = np.unique(np.round(x,2))
-    
+    Nx = 100            # The number of nodes in the model domain is Nx
     dt = 1*hours   # The calculation time step
     T = 10*365*days    # The total calculation period
 
@@ -112,12 +94,14 @@ if __name__ == '__main__':
     z_max = 30      # Maximum plot depth on the z-axis    
     
     # Set up result output 
-    outfile = 'model1_nug_results.txt' # Name of the result file
     outint = 10*days  # The interval at which results will be written to the file    
+    
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # equidistant mesh points in space
+    dx = x[1] - x[0]
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
+    plot_solution.initialize(initialTemperature(x), x, 0., name='model1 lb2 (red) vs lb3 (blue)')
         
     # Switch animation on or off
     if animate:
@@ -125,36 +109,12 @@ if __name__ == '__main__':
     else:
         user_action = None
     
-    # Call Finite Difference engine    
-    
-    # # upgrade warnings to errors
-    # with warnings.catch_warnings():
-    #     warnings.simplefilter('error')
-    
-    u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
-                                                 Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
-                                                 user_action=user_action,
-                                                 outfile=outfile,
-                                                 outint=outint,
-                                                 silent=True,
-                                                 show_solver_time=False)
-    
-    # plot final result
-    plot_solution.update(u, x, t)
-    
-    print 'CPU time, nug: {0} s  (Nx: {1})'.format(cpu, len(x))
-    
-    
-    
-    
-    Nx_ug = 100
-    
+    # Call Finite Difference engine        
     # Set up result output 
-    outfile = 'model1_ug_results.txt' # Name of the result file
+    outfile = 'model1_ug_lb2_results.txt' # Name of the result file
     
     # Call Finite Difference engine    
-    u_ug, x_ug, t_ug, cpu_ug = soilfreeze1d.solver_theta(Layers, Nx_ug, dt, T, 
+    u_lb2, x_lb2, t_lb2, cpu_lb2 = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
                                                  Tinit=initialTemperature, 
                                                  ub=surf_T, lb_type=2, grad=grad,
                                                  user_action=user_action,
@@ -163,6 +123,20 @@ if __name__ == '__main__':
                                                  silent=True,
                                                  show_solver_time=False)
     
-    plot_solution.add(u_ug, x_ug, t_ug, 'b')
+    plot_solution.update(u_lb2, x_lb2, t_lb2)
+    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb2, len(x_lb2))
     
-    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_ug, len(x_ug))
+    outfile = 'model1_ug_lb3_results.txt' # Name of the result file
+    u_lb3, x_lb3, t_lb3, cpu_lb3 = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
+                                                 Tinit=initialTemperature, 
+                                                 ub=surf_T, lb_type=3, grad=grad,
+                                                 user_action=user_action,
+                                                 outfile=outfile,
+                                                 outint=outint,
+                                                 silent=True,
+                                                 show_solver_time=False)
+
+
+    plot_solution.add(u_lb3, x_lb3, t_lb3, 'b')
+    
+    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb3, len(x_lb3))

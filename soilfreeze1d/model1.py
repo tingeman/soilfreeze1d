@@ -7,9 +7,10 @@
 This model script illustrates the use of the soilfreeze1d module for 
 calculating the thermal regime in a 1D model with one layer using the stefan 
 solution (phase change occurs linearly over a specified temperature interval).
+
 The model domain has an initial termperature of -2C at all nodes, and the 
 model is forced by a harmonic temperature variation at the upper boundary. 
-The lower boundary has a specified constant gradient of 0.08333 C/m.
+The lower boundary has a specified constant gradient of 0.02 C/m.
 Results will be written to the file model1_results.txt at a daily interval.
 
 ===============================================================================
@@ -18,6 +19,7 @@ Results will be written to the file model1_results.txt at a daily interval.
 
 # import standard pythom modules
 import numpy as np
+import pdb
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
@@ -64,15 +66,15 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    Nx = 100        # The number of nodes in the model domain is Nx+1
-    dt = 1*days   # The calculation time step
-    T = 100*365*days    # The total calculation period
+    Nx = 100            # The number of nodes in the model domain is Nx
+    dt = 1*days         # The calculation time step
+    T = 10*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
 
     # Define the geothermal gradient (lower boundary)    
-    grad=0.08333     # [K/m]
+    grad=0.02     # [K/m]
     
     # Set up plotting
     fignum  = 99    # Plot results in figure number 99    
@@ -81,7 +83,7 @@ if __name__ == '__main__':
                     # time step will be plotted.
     
     Tmin = -11      # The minimum value on the temperature axis
-    Tmax = +9      # The maximum value on the temperature axis
+    Tmax = +9       # The maximum value on the temperature axis
     z_max = 30      # Maximum plot depth on the z-axis    
     
     # Set up result output 
@@ -89,12 +91,16 @@ if __name__ == '__main__':
     outint = 1*days  # The interval at which results will be written to the file    
     
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # equidistant mesh points in space
     dx = x[1] - x[0]
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., Layers, name=outfile)
+    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
+    
+    
+    
+    #pdb.set_trace()
         
     # Switch animation on or off
     if animate:
@@ -105,13 +111,17 @@ if __name__ == '__main__':
     # Call Finite Difference engine    
     u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
                                              Tinit=initialTemperature, 
-                                             ub=surf_T, lb_type=2, grad=grad,
+                                             ub=surf_T, lb_type=3, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
                                              outint=outint)
     
     # plot final result
-    plot_solution.update(u, x, t[-1])
+    plot_solution.update(u, x, t)
     
+    print ' '
+    print ' '
     print 'CPU time:', cpu
-    
+    print ' '
+    print 'Close figure to return focus to the terminal...'
+    plot_solution.show()
