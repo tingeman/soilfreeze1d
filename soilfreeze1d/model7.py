@@ -86,7 +86,7 @@ if __name__ == '__main__':
     outint = 1*days  # The interval at which results will be written to the file    
     
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx+1)   # mesh points in space
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
     dx = x[1] - x[0]
     
     # Switch animationoff
@@ -171,7 +171,7 @@ if __name__ == '__main__':
             dict(scheme='CN', dt=24*hours,   dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter=10), outfile='m7/model7_uw4_24h-1s_CN_th1e-3_max10i.txt', cpu=None),
             ]
             
-    if True:
+    if False:
         for rid, run in enumerate(runs):
             # Call Finite Difference engine    
             if os.path.exists(run['outfile']):
@@ -185,7 +185,7 @@ if __name__ == '__main__':
                 u, x, t, cpu = sf1d.solver_theta(Layers, Nx, run['dt'], T, dt_min=run['dt_min'], 
                                                  theta=run['theta'],
                                                  Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
+                                                 ub=surf_T, lb_type=3, grad=grad,
                                                  user_action=user_action,
                                                  conv_crit=run['conv_crit'],
                                                  outfile=run['outfile'],
@@ -218,7 +218,7 @@ if __name__ == '__main__':
                 runs[rid]['cpu'] = float(dat.icol(0).irow(cpu_line).rstrip(' sec').split(':')[-1])
                 cpu_times[run['outfile']] = runs[rid]['cpu']
                 times = np.array(list(dat.ix[1:cpu_line-1,0].values), dtype='f8')
-                data[run['outfile']] = dat.ix[1:cpu_line-1,2:]
+                data[run['outfile']] = dat.ix[1:cpu_line-1,2:].convert_objects(convert_numeric=True)
                 
                 # skip first and last rows, as well as index columns
                 #data[run['outfile']] = np.loadtxt(run['outfile'],  skiprows=1, delimiter=';', comment='#')
