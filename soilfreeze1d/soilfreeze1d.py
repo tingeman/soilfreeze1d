@@ -1600,7 +1600,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             G1[0,0] = 1
             G1[0,1:] = 0
             
-            d[0] = ub(solver_time().previous_time)    # upper boundary conditions      
+            d[0] = ub(solver_time.previous_time)    # upper boundary conditions      
             
             # Insert lower boundary condition
             
@@ -1608,7 +1608,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 # Dirichlet solution for lower boundary
                 G1[-1,-1] = 1
                 G1[-1,:-2] = 0
-                d[-1] = lb(solver_time().previous_time)  
+                d[-1] = lb(solver_time.previous_time)  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1,-1] = 1
