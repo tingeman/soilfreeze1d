@@ -1948,11 +1948,7 @@ class Visualizer_T(object):
         This additional distribution will not be redrawn during a
         an update call.
         """
-        plt.figure(self.fig)
-
-        #self.ax1.hold(True)            
         self.ax1.plot(u, x, color+'-', marker='.', ms=5)
-        #self.ax1.hold(True)
         
         plt.draw()
         plt.show(block=False)
