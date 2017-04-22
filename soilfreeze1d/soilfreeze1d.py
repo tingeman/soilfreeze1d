@@ -38,7 +38,7 @@ can add visualization, error computations, data analysis,
 store solutions, etc.
 """
 
-import ipdb as pdb
+#import ipdb as pdb
 import time
 import os.path
 import warnings
@@ -225,10 +225,15 @@ class FileStorage(object):
             f.write('{0:16s}'.format('Time[seconds]'))
             f.write('; {0:12s}'.format('SurfTemp[C]'))
             # Loop over all depths 
-            for did in xrange(len(self.depths)):
-                if self.nodes is not None and did in self.nodes:
+            if self.nodes is not None:
+                for did in self.nodes:
                     # write separator and temperature, if node is to be output
                     f.write('; {0:+8.3f}'.format(self.depths[did]))
+            else:
+                for did in xrange(len(self.depths)):
+                    # write separator and temperature, if node is to be output
+                    f.write('; {0:+8.3f}'.format(self.depths[did]))
+                    
             # write line termination
             f.write('\n')
         # file is automatically closed when using the "with .. as" construct
@@ -899,7 +904,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
@@ -914,7 +919,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_w = Layers.pick_values(x, 'C_w')
         k_i = Layers.pick_values(x, 'k_i')
         C_i = Layers.pick_values(x, 'C_i')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
@@ -927,7 +932,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        n = Layers.pick_values(x, 'n')
+        _n = Layers.pick_values(x, 'n')
         
         #interval = Layers.interval
         #Tf = Layers.Tf
@@ -957,9 +962,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
-    
+    # solver_time always holds the time of the time-step
+    # that is being calculated.
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
     step = 0    
+    solver_time.step()
+    
     if silent and show_solver_time:
         print 'day:' + ' '*12,
     
@@ -992,22 +1000,21 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = n*phi
+                unfrw_u1 = _n*phi
                 
             elif Layers.parameter_set == 'unfrw_swi':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
                 
-                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
-                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
-                unfrw_u1 = n*phi
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, _n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, _n, phi)
+                unfrw_u1 = _n*phi
                 
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = n*phi
-        
+                unfrw_u1 = _n*phi
         
         F = solver_time.dt/(2*dx**2)        
 
@@ -1020,7 +1027,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
-                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add_1 = L * _n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
                     C_add = C_add_1
                 else:
                     # A previous iteration exist, so an estimate of the
@@ -1047,7 +1054,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u,Tf),np.
                                                 greater_equal(u, Tf-interval)), 
-                                 C_eff + L*n/interval, C_eff)
+                                 C_eff + L*_n/interval, C_eff)
             else:
                 C_app = C_eff
             
@@ -1094,12 +1101,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(solver_time())    # upper boundary conditions
+            b[0] = ub(solver_time.previous_time)    # upper boundary conditions
             
             # Add lower boundary condition
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                b[-1] = lb(solver_time())  
+                b[-1] = lb(solver_time.previous_time)  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 b[-1] = dx*grad
@@ -1110,6 +1117,24 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
+
+            # Add upper boundary condition
+            u[0] = ub(solver_time())    # upper boundary condition
+            
+            # Add lower boundary condition
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                u[-1] = lb(solver_time())  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                u[-1] = dx*grad
+            elif lb_type == 3:
+                # First order Neumann solution for lower boundary
+                u[-1] = u[-1] + (1-theta) * ((A_N+C_N)*u[-2] - B_N*u[-1]) + 2*C_N*dx*grad
+
+                
+            
+            
             # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
@@ -1118,7 +1143,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
-                    unfrw_u = n*phi_u    
+                    unfrw_u = _n*phi_u    
                     
                     if conv_crit.iteration != 0:       # Always do at least 1 iteration
                         convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
@@ -1128,7 +1153,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                     
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
-                    unfrw_u = n*phi_u
+                    unfrw_u = _n*phi_u
 
                     convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             
@@ -1166,9 +1191,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            # Step time forward. Time step will be increased
-            # if possible by the optimistic stepping algorithm.
-            solver_time.step()
+            # Perform any defined user action
+            if user_action is not None:
+                user_action(u, x, solver_time())
+            
+            # Add data to data file buffer
+            datafile.add(solver_time(), ub(solver_time()), u)
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1182,20 +1210,15 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 iter_stats[conv_crit.iteration] = 1
             else:
                 iter_stats[conv_crit.iteration] += 1
-            
-            # update upper boundary temperature
-            u[0] = ub(solver_time())         
 
-            # Perform any defined user action
-            if user_action is not None:
-                user_action(u, x, solver_time())
-    
-            # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)
-            
             # Prepare for next time step...
             u_1, u = u, u_1
-    
+
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
+            solver_time.step()
+
+            
     # The model run has completed, now wrap up and print/output results
     
     # Screen output
@@ -1445,9 +1468,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                            interval=outint, buffer_size=30)        
     datafile.add(t0, ub(t0), u)
        
-    
+    # solver_time always holds the time of the time-step
+    # that is being calculated.
     solver_time = SolverTime(t0, dt, dt_min=dt_min, optimistic=True)
-    step = 0    
+    step = 0
+    solver_time.step()
+    
     if silent and show_solver_time:
         print 'day:' + ' '*12,
     
@@ -1574,7 +1600,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             G1[0,0] = 1
             G1[0,1:] = 0
             
-            d[0] = ub(solver_time())    # upper boundary conditions      
+            d[0] = ub(solver_time().previous_time)    # upper boundary conditions      
             
             # Insert lower boundary condition
             
@@ -1582,7 +1608,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 # Dirichlet solution for lower boundary
                 G1[-1,-1] = 1
                 G1[-1,:-2] = 0
-                d[-1] = lb(solver_time())  
+                d[-1] = lb(solver_time().previous_time)  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1,-1] = 1
@@ -1599,12 +1625,43 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 raise ValueError('Unknown lower boundary type')
             
+            
             if use_sparse:
                 # Solve system of equations
                 u[:] = scipy.sparse.linalg.spsolve(G1, d)
             else:
                 u[:] = np.linalg.solve(G1, d)
+            
+            
+            # Add upper boundary condition
+            u[0] = ub(solver_time())    # upper boundary conditions      
+            
+            # Add lower boundary condition
+            
+            if lb_type == 1:
+                # Dirichlet solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,:-2] = 0
+                u[-1] = lb(solver_time())  
+            elif lb_type == 2:
+                # First order Neumann solution for lower boundary
+                G1[-1,-1] = 1
+                G1[-1,-2] = -1
+                u[-1] = dx[-1]*grad
+            elif lb_type == 3:
+                # Second order Neumann solution for lower boundary
                 
+                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
+                
+                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
+                G1[-1,:] = Dp[-1,:]
+                u[-1] = grad
+            else:
+                raise ValueError('Unknown lower boundary type')
+
+
+
+            
             # NOW HANDLE CONVERGENCE TESTING
             
             if Layers.parameter_set == 'std':
@@ -1661,9 +1718,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             if not silent: 
                 print "Done! {0:d} iters".format(conv_crit.iteration)
             
-            # Step time forward. Time step will be increased
-            # if possible by the optimistic stepping algorithm.
-            solver_time.step()
+             # Perform any defined user action
+            if user_action is not None:
+                user_action(u, x, solver_time())
+            
+             # Add data to data file buffer
+            datafile.add(solver_time(), ub(solver_time()), u)           
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1678,19 +1738,14 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 iter_stats[conv_crit.iteration] += 1
             
-            # update upper boundary temperature
-            u[0] = ub(solver_time())         
-
-            # Perform any defined user action
-            if user_action is not None:
-                user_action(u, x, solver_time())
-    
-            # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)
-            
             # Prepare for next time step...
             u_1, u = u, u_1
-    
+            
+            # Step time forward. Time step will be increased
+            # if possible by the optimistic stepping algorithm.
+            solver_time.step()
+
+            
     # The model run has completed, now wrap up and print/output results
     
     # Screen output
@@ -1733,10 +1788,8 @@ class Visualizer_T_dT(object):
 
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 2, 1)
-            self.ax1.hold(False)
             
         self.ax1.plot(u, x, 'r-', marker='.', ms=5)
-        self.ax1.hold(True)
         self.ax1.axvline(x=0, ls='--', color='k')
         self.ax1.set_title('t=%f' % (t/(3600*24.)))
         
@@ -1746,10 +1799,8 @@ class Visualizer_T_dT(object):
         
         if self.ax2 is None: 
             self.ax2 = plt.subplot(1, 2, 2)
-            self.ax2.hold(False)
             
         self.ax2.plot(np.diff(u[:]),np.arange(len(u)-1),'b-')
-        self.ax2.hold(True)
         self.ax2.axvline(x=0, ls='--', color='k')
         self.ax2.set_ylim([0, len(u)-1])
         self.ax2.invert_yaxis()
@@ -1789,78 +1840,143 @@ class Visualizer_T_dT(object):
 
 
 class Visualizer_T(object):
+    """A class to handle automatic plotting of the model temperature distribution
+    during soilfreeze1d calculations.
+    """
+    
     def __init__(self, fig=None, ax1=None, z_max=np.inf, 
-                 Tmin=None, Tmax=None):
-        self.fig = fig
+                 Tmin=None, Tmax=None, figxy=(0,0)):
+        self.fignum = fig
+        self.fig = None
         self.ax1 = ax1
-        self.title = None
+        self.time_txt = None
+        self.line = None
+        self.vline = None
         self.z_max = z_max
         self.Tmin = Tmin
         self.Tmax = Tmax
-    
-    def initialize(self, u, x, t, Layers, name=''):
-        plt.figure(self.fig)
-
+        self.initialized = False
+        self.figxy = figxy
+        self.backend = matplotlib.get_backend()
+        if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt45gg']:
+            raise NotImplementedError('The matplotlib {0} backend is not supported. '
+                                      'Only Qt and TkAgg backends are supported.')
+        
+    def initialize(self, u, x, t, name='', figxy=None):
+        """Initialize the plot window. The initial condition of the model
+        domain is plotted, and preparations are done for fast updating
+        of the plot window using blitting.
+        
+        This initialize method must be invoked before the update method 
+        can be invoked.
+        """
+        plt.close(self.fignum)
+        
+        if figxy is not None:
+            self.figxy = figxy
+        
+        self.fig = plt.figure(self.fignum)
+        self.fig.clear()
+                
+        self.move_figure(self.figxy[0],self.figxy[1])
+            
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 1, 1)
-            self.ax1.hold(False)
+            #self.ax1.hold(False)
+        
+        self.ax1.clear()
             
-        self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
-
+        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
-        self.ax1.axvline(x=0, ls='--', color='k')
+        self.vline = self.ax1.axvline(x=0, ls='--', color='k')
         
-        plt.draw()
+        self.fig.canvas.draw_idle()
         plt.show(block=False)
 
-        self.background = plt.figure(self.fig).canvas.copy_from_bbox(self.ax1.bbox)
+        self.background = self.fig.canvas.copy_from_bbox(self.ax1.bbox)
             
-        self.ax1.plot(u, x, 'r-', marker='.', ms=5)
-        self.ax1.hold(True)
-        self.ax1.set_title('t=%f' % (t/(3600*24.)))
+        self.line = self.ax1.plot(u, x, 'r-', marker='.', ms=5)[0]
+        self.time_txt = self.ax1.text(0.95, 0.05, 't=%f' % (t/(3600*24.)),
+                                      horizontalalignment='right',
+                                      verticalalignment='center',
+                                      transform=self.ax1.transAxes)
         
-        self.ax1.set_ylim([Layers.surface_z-0.1 ,np.min([self.z_max, Layers.z_max])])
+        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
         
         if name:
-            self.title = plt.figure(self.fig).suptitle(name)        
-            
-        plt.draw()
+            self.title = self.fig.suptitle(name)        
+        
+        self.fig.canvas.draw_idle()
         plt.show(block=False)
-
+        plt.pause(0.01)
+        
+        self.initialized = True
+        print "VIZUALIZER INITIALIZED..."
 
     def __call__(self, u, x, t):
-        self.ax1.lines[0].set_xdata(u)
-        self.ax1.title.set_text('t=%f' % (t/(3600*24.)))
-
-        # restore background
-        plt.figure(self.fig).canvas.restore_region(self.background)
-
-        # redraw just the points
-        self.ax1.draw_artist(self.ax1.lines[0])
-        self.ax1.draw_artist(self.ax1.title)
-
-        # fill in the axes rectangle
-        plt.figure(self.fig).canvas.blit(self.ax1.bbox)
+        """Method to update the plot of model domain temperature.
+        The class .initialize() method must be called before 
+        updates to the plot can be accomplished.
+        """
+        self.line.set_xdata(u)
+        self.time_txt.set_text('t=%f' % (t/(3600*24.)))
         
+        # restore background
+        self.fig.canvas.restore_region(self.background)
+
+        # redraw selected artists
+        self.ax1.draw_artist(self.line)
+        self.ax1.draw_artist(self.vline)
+        self.ax1.draw_artist(self.time_txt)
+        
+        # redraw the figure canvas
+        if self.backend in ['TkAgg']:
+            self.fig_redraw = self.fig.canvas.blit(self.ax1.bbox)
+        else:
+            self.fig_redraw = self.fig.canvas.update()
+        
+        self.fig.canvas.flush_events()
         
     def update(self, u, x, t):
         self(u, x, t)       
 
     def add(self, u, x, t, color='b'):
+        """Adds an aditional temperature distribution to the figure. 
+        This additional distribution will not be redrawn during a
+        an update call.
+        """
         plt.figure(self.fig)
 
-        self.ax1.hold(True)            
+        #self.ax1.hold(True)            
         self.ax1.plot(u, x, color+'-', marker='.', ms=5)
-        self.ax1.hold(True)
+        #self.ax1.hold(True)
         
         plt.draw()
         plt.show(block=False)
     
+    def show(self, block=True):
+        plt.show(block=block)
+    
+    def move_figure(self, x, y):
+        """Move figure's upper left corner to pixel (x, y)"""
+        mngr = self.fig.canvas.manager            
         
+        if self.backend == 'TkAgg':
+            mngr.window.wm_geometry("+{0}+{1}".format(x,y))
+        elif self.backend == 'WXAgg':
+            mngr.window.SetPosition((x,y))
+        else:
+            # This works for QT and GTK
+            # You can also use window.setGeometry
+            try:
+                mngr.window.move(x,y)
+            except:
+                pass
 
+        
     
 # --------------------------------------------------------------
 #
@@ -1933,8 +2049,6 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     if fh is None:
         fh = ax.get_figure()
 
-    hstate = ax.ishold()
-
     data = np.loadtxt(fname, skiprows=1, delimiter=';')
     with open(fname, 'r') as f:
         line = f.readline()
@@ -1956,8 +2070,7 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     ax.invert_yaxis()
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position('top') 
-    ax.tick_params(axis='both', direction='out')
-    ax.hold(hstate)    
+    ax.tick_params(axis='both', direction='out')  
 
     ax.set_ylabel('Depth [m]')
     ax.set_xlabel('Temperature [C]')
@@ -2005,8 +2118,6 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     if fh is None:
         fh = ax.get_figure()
 
-    hstate = ax.ishold()
-
     if fname is not None:
         data = np.loadtxt(fname, skiprows=1, delimiter=';')
         with open(fname, 'r') as f:
@@ -2030,7 +2141,7 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     xx, yy  = np.meshgrid(time, depths)
 
     cf = ax.contourf(xx, yy, data.T, levels, cmap=cmap)
-    ax.hold(True)
+    
     if cont_levels is not None:
         ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
         cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C',fontsize=12, colors='k')
@@ -2044,7 +2155,6 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
     ax.xaxis.tick_top()
     ax.xaxis.set_label_position('top') 
     ax.tick_params(axis='both', direction='out')
-    ax.hold(hstate)
     #ax.xaxis_date()
 
     cbax = plt.colorbar(cf, orientation='horizontal', ax=cax, shrink=1.0)
@@ -2248,4 +2358,5 @@ def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.in
         
         
 if __name__ == '__main__':
-    test_FD_stefan_gra
+    #test_FD_stefan_gra
+    pass
