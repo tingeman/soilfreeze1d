@@ -38,9 +38,10 @@ can add visualization, error computations, data analysis,
 store solutions, etc.
 """
 
-#import ipdb as pdb
+import pdb
 import time
 import os.path
+import copy
 import warnings
 import fractions
 import decimal
@@ -615,7 +616,7 @@ class LayeredModel_stefan(LayeredModel):
         phi = np.ones_like(T)*np.nan
         phi[np.greater(T,Tf)] = 1.0              # The 1.0 is the water saturation
         phi[np.less_equal(T,Tf-interval)] = 0.0  # No unfrozen water
-        return np.where(np.isnan(phi), interval*T+1, phi)
+        return np.where(np.isnan(phi), (interval**-1)*T+1, phi)
 
     def f_unfrozen_water(self, T, Tf, interval, n, S_w=1.0):
         """Calculates the unfrozen water content [m^3/m^3]."""
@@ -953,7 +954,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     for i in range(0,Nx):
         u_1[i] = Tinit(x[i])
 
-    u = u_1 + 0.001    # initialize u for finite differences
+    u = copy.copy(u_1)    # initialize u for finite differences   
     
     if user_action is not None:
         user_action(u_1, x, t0)
@@ -1067,7 +1068,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             C_m       = F*(k_eff[0:-1]+k_eff[1:])/C_app[0:-1]    
             
             # Compute diagonal elements for lower boundary point
-            A_N       = F*(k_eff[Nx-1]+k_eff[Nx-2])/C_app[Nx-1]    
+            A_N       = F*(k_eff[Nx-1]+k_eff[Nx-2])/C_app[Nx-1]        # node id Nx-1 is the last node (N)
             B_N       = F*(k_eff[Nx-2]+3*k_eff[Nx-1])/C_app[Nx-1]
             C_N       = F*(2*k_eff[Nx-1])/C_app[Nx-1]    
 
@@ -1101,12 +1102,12 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
                 
             # Compute known vector
             b[1:-1] = u_1[1:-1] + (1-theta) * (A_m[0:-1]*u_1[:-2] - B_m[1:-1]*u_1[1:-1] + C_m[1:]*u_1[2:])
-            b[0] = ub(solver_time.previous_time)    # upper boundary conditions
+            b[0] = ub(solver_time())    # upper boundary conditions
             
             # Add lower boundary condition
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
-                b[-1] = lb(solver_time.previous_time)  
+                b[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 b[-1] = dx*grad
@@ -1118,20 +1119,22 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             u[:] = scipy.sparse.linalg.spsolve(U, b)
 
 
-            # Add upper boundary condition
-            u[0] = ub(solver_time())    # upper boundary condition
-            
-            # Add lower boundary condition
-            if lb_type == 1:
-                # Dirichlet solution for lower boundary
-                u[-1] = lb(solver_time())  
-            elif lb_type == 2:
-                # First order Neumann solution for lower boundary
-                u[-1] = dx*grad
-            elif lb_type == 3:
-                # First order Neumann solution for lower boundary
-                u[-1] = u[-1] + (1-theta) * ((A_N+C_N)*u[-2] - B_N*u[-1]) + 2*C_N*dx*grad
-
+# Should not be necessary ???
+#            # Add upper boundary condition
+#            u[0] = ub(solver_time())    # upper boundary condition
+#            
+#            # Add lower boundary condition
+#            if lb_type == 1:
+#                # Dirichlet solution for lower boundary
+#                u[-1] = lb(solver_time())  
+#            elif lb_type == 2:
+#                # First order Neumann solution for lower boundary
+#                # u[-1] = dx*grad
+#                pass
+#            elif lb_type == 3:
+#                # First order Neumann solution for lower boundary
+#                # u[-1] = u[-1] + (1-theta) * ((A_N+C_N)*u[-2] - B_N*u[-1]) + 2*C_N*dx*grad
+#                pass
                 
             
             
@@ -1459,7 +1462,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     for i in range(0,Nx):
         u_1[i] = Tinit(x[i])
 
-    u = u_1 + 0.001    # initialize u for finite differences
+    u = copy.copy(u_1)    # initialize u for finite differences
     
     if user_action is not None:
         user_action(u_1, x, t0)
@@ -1600,19 +1603,20 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             G1[0,0] = 1
             G1[0,1:] = 0
             
-            d[0] = ub(solver_time.previous_time)    # upper boundary conditions      
+            d[0] = ub(solver_time())    # upper boundary conditions      
             
             # Insert lower boundary condition
             
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
                 G1[-1,-1] = 1
-                G1[-1,:-2] = 0
-                d[-1] = lb(solver_time.previous_time)  
+                G1[-1,:-1] = 0
+                d[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1,-1] = 1
                 G1[-1,-2] = -1
+                G1[-1,:-2] = 0
                 d[-1] = dx[-1]*grad
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
@@ -1632,32 +1636,34 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             else:
                 u[:] = np.linalg.solve(G1, d)
             
-            
-            # Add upper boundary condition
-            u[0] = ub(solver_time())    # upper boundary conditions      
-            
-            # Add lower boundary condition
-            
-            if lb_type == 1:
-                # Dirichlet solution for lower boundary
-                G1[-1,-1] = 1
-                G1[-1,:-2] = 0
-                u[-1] = lb(solver_time())  
-            elif lb_type == 2:
-                # First order Neumann solution for lower boundary
-                G1[-1,-1] = 1
-                G1[-1,-2] = -1
-                u[-1] = dx[-1]*grad
-            elif lb_type == 3:
-                # Second order Neumann solution for lower boundary
-                
-                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
-                
-                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
-                G1[-1,:] = Dp[-1,:]
-                u[-1] = grad
-            else:
-                raise ValueError('Unknown lower boundary type')
+            #pdb.set_trace()
+
+# Should not be necessary            
+#            # Add upper boundary condition
+#            u[0] = ub(solver_time())    # upper boundary conditions      
+#            
+#            # Add lower boundary condition
+#            
+#            if lb_type == 1:
+#                # Dirichlet solution for lower boundary
+#                G1[-1,-1] = 1
+#                G1[-1,:-2] = 0
+#                u[-1] = lb(solver_time())  
+#            elif lb_type == 2:
+#                # First order Neumann solution for lower boundary
+#                G1[-1,-1] = 1
+#                G1[-1,-2] = -1
+#                #u[-1] = dx[-1]*grad
+#            elif lb_type == 3:
+#                # Second order Neumann solution for lower boundary
+#                
+#                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
+#                
+#                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
+#                G1[-1,:] = Dp[-1,:]
+#                #u[-1] = grad
+#            else:
+#                raise ValueError('Unknown lower boundary type')
 
 
 
@@ -1844,7 +1850,7 @@ class Visualizer_T(object):
     during soilfreeze1d calculations.
     """
     
-    def __init__(self, fig=None, ax1=None, z_max=np.inf, 
+    def __init__(self, Layers, fig=None, ax1=None, z_max=np.inf, 
                  Tmin=None, Tmax=None, figxy=(0,0)):
         self.fignum = fig
         self.fig = None
@@ -1856,6 +1862,7 @@ class Visualizer_T(object):
         self.Tmin = Tmin
         self.Tmax = Tmax
         self.initialized = False
+        self.Layers = Layers
         self.figxy = figxy
         self.backend = matplotlib.get_backend()
         if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt5Agg']:
@@ -1872,21 +1879,21 @@ class Visualizer_T(object):
         """
         plt.close(self.fignum)
         
-        if figxy is not None:
-            self.figxy = figxy
-        
         self.fig = plt.figure(self.fignum)
         self.fig.clear()
-                
-        self.move_figure(self.figxy[0],self.figxy[1])
+
+        if figxy is not None:
+            self.figxy = figxy
+
+        if figxy is not None:
+            self.move_figure(self.figxy[0],self.figxy[1])
             
         if self.ax1 is None:
             self.ax1 = plt.subplot(1, 1, 1)
-            #self.ax1.hold(False)
         
         self.ax1.clear()
             
-        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
+        self.ax1.set_ylim([self.Layers.surface_z-0.1 ,np.min([self.z_max, self.Layers.z_max])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
         self.vline = self.ax1.axvline(x=0, ls='--', color='k')
@@ -1902,7 +1909,7 @@ class Visualizer_T(object):
                                       verticalalignment='center',
                                       transform=self.ax1.transAxes)
         
-        self.ax1.set_ylim([x[0]-0.1 ,np.min([self.z_max, x[-1]])])
+        self.ax1.set_ylim([self.Layers.surface_z-0.1 ,np.min([self.z_max, self.Layers.z_max])])
         self.ax1.set_xlim([self.Tmin,self.Tmax])
         self.ax1.invert_yaxis()
         
