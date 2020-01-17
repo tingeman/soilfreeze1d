@@ -1858,7 +1858,7 @@ class Visualizer_T(object):
         self.initialized = False
         self.figxy = figxy
         self.backend = matplotlib.get_backend()
-        if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt45gg']:
+        if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt5Agg']:
             raise NotImplementedError('The matplotlib {0} backend is not supported. '
                                       'Only Qt and TkAgg backends are supported.')
         
