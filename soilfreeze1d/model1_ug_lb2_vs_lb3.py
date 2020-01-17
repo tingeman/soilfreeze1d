@@ -100,7 +100,7 @@ if __name__ == '__main__':
     dx = x[1] - x[0]
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., name='model1 lb2 (red) vs lb3 (blue)')
         
     # Switch animation on or off

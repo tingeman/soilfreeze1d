@@ -94,7 +94,7 @@ if __name__ == '__main__':
     dx = x[1] - x[0]
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
 
     #==========================================================================
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     outint = 1*days  # The interval at which results will be written to the file    
     
     # Reinitialize plotting
-    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, t0, name=outfile)
     
     # Switch animation on or off

@@ -177,17 +177,17 @@ if __name__ == '__main__':
                 # Find comment line with cpu time
                 cpu_line = None
                 for lid in xrange(1,len(dat)):
-                    if hasattr(dat.icol(0).irow(-lid), 'split'):
+                    if hasattr(dat.iloc[-lid,0], 'split'):   #if hasattr(dat.icol(0).irow(-lid), 'split'):
                         # This is a string
-                        if dat.icol(0).irow(-lid).startswith('# cpu'):
+                        if dat.iloc[-lid, 0].startswith('# cpu'):   #if dat.icol(0).irow(-lid).startswith('# cpu'):
                             cpu_line = dat.index.max()-lid+1  # the line number of the cpu comment
                             break
                 
                 # Parse all info from file
-                runs[rid]['cpu'] = float(dat.icol(0).irow(cpu_line).rstrip(' sec').split(':')[-1])
+                runs[rid]['cpu'] = float(dat.iloc[cpu_line,0].rstrip(' sec').split(':')[-1])    #float(dat.icol(0).irow(cpu_line).rstrip(' sec').split(':')[-1])
                 cpu_times[run['outfile']] = runs[rid]['cpu']
-                times = np.array(list(dat.ix[1:cpu_line-1,0].values), dtype='f8')
-                data[run['outfile']] = dat.ix[1:cpu_line-1,2:].convert_objects(convert_numeric=True)
+                times = np.array(list(dat.iloc[1:cpu_line-1,0].values), dtype='f8')
+                data[run['outfile']] = dat.iloc[1:cpu_line-1,2:].astype('float64')  #dat.iloc[1:cpu_line-1,2:].convert_objects(convert_numeric=True)
                 
         params = pd.DataFrame(runs)
         params['dT_max'] = 0.
@@ -231,19 +231,19 @@ if __name__ == '__main__':
                 elif min_dt_unit == 'm':
                     min_dt = min_dt*60                    
                     
-                params.ix[params['outfile']==dat_key, 'dT_max'] = dT_max
-                params.ix[params['outfile']==dat_key, 'dT_min'] = dT_min
-                params.ix[params['outfile']==dat_key, 'dT_absmax'] = dT_absmax
-                params.ix[params['outfile']==dat_key, 'dT_avg'] = dT_avg
-                params.ix[params['outfile']==dat_key, 'dT_std'] = dT_std
-                params.ix[params['outfile']==dat_key, 'dT_999pct'] = dT_999pct
-                params.ix[params['outfile']==dat_key, 'max_dt'] = max_dt                
-                params.ix[params['outfile']==dat_key, 'max_dt_str'] = max_dt_str
-                params.ix[params['outfile']==dat_key, 'min_dt'] = min_dt                
-                params.ix[params['outfile']==dat_key, 'min_dt_str'] = min_dt_str
+                params.loc[params['outfile']==dat_key, 'dT_max'] = dT_max
+                params.loc[params['outfile']==dat_key, 'dT_min'] = dT_min
+                params.loc[params['outfile']==dat_key, 'dT_absmax'] = dT_absmax
+                params.loc[params['outfile']==dat_key, 'dT_avg'] = dT_avg
+                params.loc[params['outfile']==dat_key, 'dT_std'] = dT_std
+                params.loc[params['outfile']==dat_key, 'dT_999pct'] = dT_999pct
+                params.loc[params['outfile']==dat_key, 'max_dt'] = max_dt                
+                params.loc[params['outfile']==dat_key, 'max_dt_str'] = max_dt_str
+                params.loc[params['outfile']==dat_key, 'min_dt'] = min_dt                
+                params.loc[params['outfile']==dat_key, 'min_dt_str'] = min_dt_str
 
         pd.set_option('display.width', 200)
-        print params[['outfile','max_dt_str','min_dt_str','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort('cpu') 
+        print params[['outfile','max_dt_str','min_dt_str','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort_values('cpu') 
 
         if True:
             fig1 = plt.figure(); ax1 = plt.axes()
