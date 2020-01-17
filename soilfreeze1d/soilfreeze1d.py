@@ -221,6 +221,9 @@ class FileStorage(object):
                 # The file already exists, so do nothing
                 return
         
+        if not os.path.exists(os.path.dirname(self.filename)):
+            os.mkdir(os.path.dirname(self.filename))
+        
         with open(self.filename, 'w') as f:
             # Write the header row
             f.write('{0:16s}'.format('Time[seconds]'))
