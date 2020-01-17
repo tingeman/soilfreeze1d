@@ -86,7 +86,7 @@ if __name__ == '__main__':
     dx = x[1] - x[0]
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
     
     # Switch animation on or off
@@ -109,12 +109,14 @@ if __name__ == '__main__':
                                              conv_crit=conv_crit)
     
     # This call is to use the non-uniform grid solver. Strangely, it is much slower???    
+    #       No not strange, it has same number of nodes, so it must be slower...
     #u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
     #                                         Tinit=initialTemperature, 
     #                                         ub=surf_T, lb_type=2, grad=grad,
     #                                         user_action=user_action,
     #                                         outfile=outfile,
-    #                                         outint=outint)
+    #                                         outint=outint,
+    #                                         silent=True)
     
     # plot final result
     plot_solution.update(u, x, t)

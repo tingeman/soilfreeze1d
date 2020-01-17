@@ -68,7 +68,7 @@ if __name__ == '__main__':
     # Define model domain properties
     Nx = 100            # The number of nodes in the model domain is Nx
     dt = 1*days         # The calculation time step
-    T = 10*365*days    # The total calculation period
+    T = 100*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
     surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     dx = x[1] - x[0]
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T(Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
     plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
     
     
