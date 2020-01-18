@@ -121,4 +121,4 @@ if __name__ == '__main__':
     # plot final result
     plot_solution.update(u, x, t)
     
-    print 'CPU time:', cpu
+    print('CPU time:', cpu)

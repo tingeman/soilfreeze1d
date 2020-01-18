@@ -100,7 +100,7 @@ if __name__ == '__main__':
             #dict(scheme='CN', dt=1*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw2(threshold=1e-5,max_iter= 5), outfile='m7/model7_uw2_1m-1s_CN_th1e-5_max5i.txt', cpu=None),
             #
             # REFERENCE RUN:
-            dict(scheme='CN', dt=1*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 5), outfile='m7/model7_uw4_1m-1s_CN_th1e-3_max5i.txt',  cpu=None),
+            dict(scheme='CN', dt=1*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 10), outfile='m7/model7_uw4_1m-1s_CN_th1e-3_max10i.txt',  cpu=None),
             #
             dict(scheme='CN', dt=5*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 2), outfile='m7/model7_uw4_5m-1s_CN_th1e-3_max2i.txt',  cpu=None),
             dict(scheme='CN', dt=5*minutes, dt_min=1, theta=0.5, conv_crit=sf1d.ConvCritUnfrw4(threshold=1e-3,max_iter= 3), outfile='m7/model7_uw4_5m-1s_CN_th1e-3_max3i.txt',  cpu=None),
@@ -175,11 +175,11 @@ if __name__ == '__main__':
         for rid, run in enumerate(runs):
             # Call Finite Difference engine    
             if os.path.exists(run['outfile']):
-                print "Skipping {0}  ".format(run['outfile'])
+                print("Skipping {0}  ".format(run['outfile']))
                 sys.stdout.flush()
             else:
-                print "Running  {0}  ".format(run['outfile'])
-                print "Starting:  {0}     ".format(time.ctime()),
+                print("Running  {0}  ".format(run['outfile']))
+                print("Starting:  {0}     ".format(time.ctime()), end=' ')
                 
                 sys.stdout.flush()
                 u, x, t, cpu = sf1d.solver_theta(Layers, Nx, run['dt'], T, dt_min=run['dt_min'], 
@@ -194,8 +194,8 @@ if __name__ == '__main__':
                 
                 runs[rid][cpu] = cpu
                 cpu_list.append([run['outfile'],cpu])
-                print ' cpu: {0:.3f} sec'.format(cpu)
-                print "Ended:     {0}     ".format(time.ctime())
+                print(' cpu: {0:.3f} sec'.format(cpu))
+                print("Ended:     {0}     ".format(time.ctime()))
         
 
     if True:        
@@ -207,7 +207,7 @@ if __name__ == '__main__':
                 dat = pd.read_csv(run['outfile'], delimiter = ";")
                 
                 cpu_line = None
-                for lid in xrange(1,len(dat)):
+                for lid in range(1,len(dat)):
                     if hasattr(dat.iloc[-lid,0], 'split'):
                         # This is a string
                         if dat.iloc[-lid,0].startswith('# cpu'):
@@ -233,7 +233,7 @@ if __name__ == '__main__':
         params['max_dt'] = 0.
         params['max_dt_str'] = 0.
         
-        ref = 'm7/model7_uw4_1m-1s_CN_th1e-3_max5i.txt'
+        ref = 'm7/model7_uw4_1m-1s_CN_th1e-3_max10i.txt'
         refdat = data[ref]
         
         for did, dat_key in enumerate(sorted(data.keys())):
@@ -267,7 +267,7 @@ if __name__ == '__main__':
                 #print '{0:43}:  Max: {1:7.4f} C,  Min: {2:7.4f} C,  Avg: {3:7.4f} C,  Std: {4:7.4f} C,  CPU: {5:7.4f} s'.format(dat_key, dT_max, dT_min, dT_avg, dT_std, cpu_times[dat_key])
         
         pd.set_option('display.width', 200)
-        print params[['outfile','max_dt_str','max_iter','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort_values('cpu') 
+        print(params[['outfile','max_dt_str','max_iter','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort_values('cpu')) 
                  
         if True:
             fig1 = plt.figure(); ax1 = plt.axes()

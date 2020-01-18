@@ -124,7 +124,7 @@ if __name__ == '__main__':
                                                  show_solver_time=False)
     
     plot_solution.update(u_lb2, x_lb2, t_lb2)
-    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb2, len(x_lb2))
+    print('CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb2, len(x_lb2)))
     
     outfile = 'model1_ug_lb3_results.txt' # Name of the result file
     u_lb3, x_lb3, t_lb3, cpu_lb3 = soilfreeze1d.solver_theta(Layers, Nx, dt, T, 
@@ -139,4 +139,4 @@ if __name__ == '__main__':
 
     plot_solution.add(u_lb3, x_lb3, t_lb3, 'b')
     
-    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb3, len(x_lb3))
+    print('CPU time, ug: {0} s  (Nx: {1})'.format(cpu_lb3, len(x_lb3)))
