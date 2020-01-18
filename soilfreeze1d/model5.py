@@ -140,15 +140,15 @@ if __name__ == '__main__':
             #dict(scheme='CN', dt=20*hours, dt_min=360, theta=0.5, outfile='m5/model5_20h-6m_CN.txt', cpu=None),
             dict(scheme='CN', dt=24*hours, dt_min=360, theta=0.5, outfile='m5/model5_24h-6m_CN.txt', cpu=None)]
             
-    if False:
+    if True:
         for rid, run in enumerate(runs):
             # Call Finite Difference engine
             if os.path.exists(run['outfile']):
-                print "Skipping {0}  ".format(run['outfile'])
+                print("Skipping {0}  ".format(run['outfile']))
                 sys.stdout.flush()
             else:
-                print "Running  {0}  ".format(run['outfile'])
-                print "Starting:  {0}     ".format(time.ctime()),
+                print("Running  {0}  ".format(run['outfile']))
+                print("Starting:  {0}     ".format(time.ctime()), end=' ')
                 
 
                 sys.stdout.flush()
@@ -163,8 +163,8 @@ if __name__ == '__main__':
                 
                 runs[rid][cpu] = cpu
                 cpu_list.append([run['outfile'],cpu])
-                print ' cpu: {0:.3f} sec'.format(cpu)
-                print "Ended:     {0}     ".format(time.ctime())
+                print(' cpu: {0:.3f} sec'.format(cpu))
+                print("Ended:     {0}     ".format(time.ctime()))
         
 
     if True:        
@@ -176,7 +176,7 @@ if __name__ == '__main__':
 
                 # Find comment line with cpu time
                 cpu_line = None
-                for lid in xrange(1,len(dat)):
+                for lid in range(1,len(dat)):
                     if hasattr(dat.iloc[-lid,0], 'split'):   #if hasattr(dat.icol(0).irow(-lid), 'split'):
                         # This is a string
                         if dat.iloc[-lid, 0].startswith('# cpu'):   #if dat.icol(0).irow(-lid).startswith('# cpu'):
@@ -243,7 +243,7 @@ if __name__ == '__main__':
                 params.loc[params['outfile']==dat_key, 'min_dt_str'] = min_dt_str
 
         pd.set_option('display.width', 200)
-        print params[['outfile','max_dt_str','min_dt_str','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort_values('cpu') 
+        print(params[['outfile','max_dt_str','min_dt_str','dT_absmax','dT_avg','dT_std','dT_999pct','cpu']].sort_values('cpu')) 
 
         if True:
             fig1 = plt.figure(); ax1 = plt.axes()

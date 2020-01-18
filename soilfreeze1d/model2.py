@@ -111,14 +111,15 @@ if __name__ == '__main__':
                                              ub=surf_T, lb_type=3, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
-                                             outint=outint)
+                                             outint=outint,
+                                             silent=True)
     
    # plot final result
     plot_solution.update(u, x, t)
     
-    print ' '
-    print ' '
-    print 'CPU time:', cpu
-    print ' '
-    print 'Close figure to return focus to the terminal...'
+    print(' ')
+    print(' ')
+    print('CPU time:', cpu)
+    print(' ')
+    print('Close figure to return focus to the terminal...')
     plot_solution.show()

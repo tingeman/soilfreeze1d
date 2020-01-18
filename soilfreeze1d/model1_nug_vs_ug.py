@@ -143,7 +143,7 @@ if __name__ == '__main__':
     # plot final result
     plot_solution.update(u, x, t)
     
-    print 'CPU time, nug: {0} s  (Nx: {1})'.format(cpu, len(x))
+    print('CPU time, nug: {0} s  (Nx: {1})'.format(cpu, len(x)))
     
     
     
@@ -165,4 +165,4 @@ if __name__ == '__main__':
     
     plot_solution.add(u_ug, x_ug, t_ug, 'b')
     
-    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu_ug, len(x_ug))
+    print('CPU time, ug: {0} s  (Nx: {1})'.format(cpu_ug, len(x_ug)))
