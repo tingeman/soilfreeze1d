@@ -221,8 +221,10 @@ class FileStorage(object):
                 # The file already exists, so do nothing
                 return
         
-        if not os.path.exists(os.path.dirname(self.filename)):
-            os.mkdir(os.path.dirname(self.filename))
+        if os.path.exists(os.path.dirname(os.path.abspath(self.filename))):
+            pass
+        else:
+            os.mkdir(os.path.dirname(os.path.abspath(self.filename)))
         
         with open(self.filename, 'w') as f:
             # Write the header row
@@ -234,7 +236,7 @@ class FileStorage(object):
                     # write separator and temperature, if node is to be output
                     f.write('; {0:+8.3f}'.format(self.depths[did]))
             else:
-                for did in xrange(len(self.depths)):
+                for did in range(len(self.depths)):
                     # write separator and temperature, if node is to be output
                     f.write('; {0:+8.3f}'.format(self.depths[did]))
                     
@@ -277,17 +279,17 @@ class FileStorage(object):
         """Writes buffer to disk file."""
         with open(self.filename, 'a') as f:  # open the file
             # loop over all rows in buffer
-            for rid in xrange(self.count):
+            for rid in range(self.count):
                 # Write the time step
                 f.write('{0:16.3f}'.format(self._buffer[rid, 0])) 
                 f.write('; {0:+12.3f}'.format(self._buffer[rid, 1]))
                 # Loop over all the temperatures in the row
                 if self.nodes is None:
-                    for cid in xrange(len(self.depths)):
+                    for cid in range(len(self.depths)):
                         # write separator and temperature
                         f.write('; {0:+8.3f}'.format(self._buffer[rid, cid+2]))
                 else:
-                    for cid in xrange(len(self.nodes)):
+                    for cid in range(len(self.nodes)):
                         # write separator and temperature
                         f.write('; {0:+8.3f}'.format(self._buffer[rid, cid+2]))
                 # write line termination
@@ -314,7 +316,7 @@ class LayeredModel(object):
             self._layers = np.resize(self._layers, len(self._layers)+1)
         
         # Add the 
-        for k,v in kwargs.items():
+        for k,v in list(kwargs.items()):
             try:
                 self._layers[-1][k] = v
             except:
@@ -326,10 +328,10 @@ class LayeredModel(object):
     # get_cell_values(Layers.k_th, x) should return an array of shape len(x)-1, with values generated from k_th layer parameter
         
     def __getitem__(self, key):
-        if isinstance(key, basestring):
+        if isinstance(key, str):
             return self._layers[key]
         else:
-            return dict(zip(self._descriptor['names'],self._layers[np.int(key)]))
+            return dict(list(zip(self._descriptor['names'],self._layers[np.int(key)])))
     
     def __setitem__(self, key, value):
         raise NotImplementedError('Setter not implemented for the LayeredModel class...')
@@ -359,7 +361,7 @@ class LayeredModel(object):
        
         # set up list of conditions
         condlist = []
-        for lid in xrange(len(self._layers)):
+        for lid in range(len(self._layers)):
             condlist.append(np.logical_and(depths>=ldepths[lid], depths<ldepths[lid+1]))
         
         result = np.select(condlist, self._layers[param])
@@ -441,7 +443,7 @@ class LayeredModel_unfrw_swi(LayeredModel):
         ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
         
         # loop over all layers
-        for n in xrange(nlayers):
+        for n in range(nlayers):
             # plot top of layer as line in ax1
             ax1.axhline(y=ldepths[n], ls='-', color='k')
             ax1.set_ylim([ldepths[0], ldepths[-1]])            
@@ -517,7 +519,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
         
         # loop over all layers
-        for n in xrange(nlayers):
+        for n in range(nlayers):
             # plot top of layer as line in ax1
             ax1.axhline(y=ldepths[n], ls='-', color='k')
             ax1.set_ylim([ldepths[0], ldepths[-1]])            
@@ -594,7 +596,7 @@ class LayeredModel_stefan(LayeredModel):
         ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
         
         # loop over all layers
-        for n in xrange(nlayers):
+        for n in range(nlayers):
             # plot top of layer as line in ax1
             ax1.axhline(y=ldepths[n], ls='-', color='k')
             ax1.set_ylim([ldepths[0], ldepths[-1]])            
@@ -669,9 +671,9 @@ class ConvergenceCriteria(object):
         while success == False and attempts < 10:
             try:
                 if self.unit == '%':
-                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)*100),
+                    print("{1:.8f}{0}".format(self.unit,np.max(self.change)*100), end=' ')
                 else:
-                    print "{1:.8f}{0}".format(self.unit,np.max(self.change)),
+                    print("{1:.8f}{0}".format(self.unit,np.max(self.change)), end=' ')
                 success = True
             except:
                 pass
@@ -818,10 +820,10 @@ class SolverTime(object):
 
     def show(self):
         return
-        print "time:        {0}".format(self.time)
-        print "time-1:      {0}".format(self.previous_time)
-        print "dt_fraction: {0}".format(self.dt_fraction)        
-        print "allow incr:  {0}".format(self.step_up_allowed)    
+        print("time:        {0}".format(self.time))
+        print("time-1:      {0}".format(self.previous_time))
+        print("dt_fraction: {0}".format(self.dt_fraction))        
+        print("allow incr:  {0}".format(self.step_up_allowed))    
 
 
 def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
@@ -903,7 +905,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
-        if not silent: print "Using unfrozen water parameters"
+        if not silent: print("Using unfrozen water parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -916,7 +918,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'unfrw_swi':
-        if not silent: print "Using unfrozen water parameters"
+        if not silent: print("Using unfrozen water parameters")
         k_s = Layers.pick_values(x, 'k_s')
         C_s = Layers.pick_values(x, 'C_s')
         k_w = Layers.pick_values(x, 'k_w')
@@ -931,7 +933,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)        
     elif Layers.parameter_set == 'stefan':
-        if not silent: print "Using stefan solution parameters"
+        if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -943,7 +945,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         interval = Layers.pick_values(x, 'interval')
         Tf = Layers.pick_values(x, 'Tf')
     else:
-        if not silent: print "Using standard parameters"
+        if not silent: print("Using standard parameters")
         k_eff = Layers.pick_values(x, 'k')
         C_eff = Layers.pick_values(x, 'C')
         k_th = np.nan
@@ -973,7 +975,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     solver_time.step()
     
     if silent and show_solver_time:
-        print 'day:' + ' '*12,
+        print('day:' + ' '*12, end=' ')
     
     # Time loop    
     while solver_time() < t_end:      
@@ -986,9 +988,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         
         try:
             if not silent:
-                print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+                print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
             elif show_solver_time:
-                print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+                print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
         except:
             pass
                 
@@ -1171,7 +1173,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
 
         if not convergence:
             if not silent:
-                print "No convergence.",
+                print("No convergence.", end=' ')
                 
             timestep_decreased = solver_time.decrease_step()
             
@@ -1187,15 +1189,15 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
             
             if timestep_decreased:
                 if not silent:
-                    print "dt reduced."
+                    print("dt reduced.")
             else:
                 if not silent: 
-                    print "Reduction impossible.",
+                    print("Reduction impossible.", end=' ')
 
         if convergence or not timestep_decreased:
             # We had convergence, prepare for next time step.             
             if not silent: 
-                print "Done! {0:d} iters".format(conv_crit.iteration)
+                print("Done! {0:d} iters".format(conv_crit.iteration))
             
             # Perform any defined user action
             if user_action is not None:
@@ -1230,9 +1232,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     # Screen output
     try:
         if not silent:
-            print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+            print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
         elif show_solver_time:
-            print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+            print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
     except:
         pass
     
@@ -1411,7 +1413,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
-        if not silent: print "Using unfrozen water parameters"
+        if not silent: print("Using unfrozen water parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -1424,7 +1426,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
     elif Layers.parameter_set == 'unfrw_swi':
-        if not silent: print "Using unfrozen water parameters"
+        if not silent: print("Using unfrozen water parameters")
         k_s = Layers.pick_values(x, 'k_s')
         C_s = Layers.pick_values(x, 'C_s')
         k_w = Layers.pick_values(x, 'k_w')
@@ -1439,7 +1441,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)        
     elif Layers.parameter_set == 'stefan':
-        if not silent: print "Using stefan solution parameters"
+        if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
@@ -1451,7 +1453,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         interval = Layers.pick_values(x, 'interval')
         Tf = Layers.pick_values(x, 'Tf')
     else:
-        if not silent: print "Using standard parameters"
+        if not silent: print("Using standard parameters")
         k_eff = Layers.pick_values(x, 'k')
         C_eff = Layers.pick_values(x, 'C')
         k_th = np.nan
@@ -1481,7 +1483,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     solver_time.step()
     
     if silent and show_solver_time:
-        print 'day:' + ' '*12,
+        print('day:' + ' '*12, end=' ')
     
     # Time loop    
     while solver_time() < t_end:
@@ -1494,9 +1496,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
         
         try:
             if not silent:
-                print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+                print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
             elif show_solver_time:
-                print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+                print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
         except:
             pass
                 
@@ -1701,7 +1703,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             
         if not convergence:
             if not silent:
-                print "No convergence.",
+                print("No convergence.", end=' ')
                 
             timestep_decreased = solver_time.decrease_step()
             
@@ -1717,15 +1719,15 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
             
             if timestep_decreased:
                 if not silent:
-                    print "dt reduced."
+                    print("dt reduced.")
             else:
                 if not silent: 
-                    print "Reduction impossible.",
+                    print("Reduction impossible.", end=' ')
 
         if convergence or not timestep_decreased:
             # We had convergence, prepare for next time step.             
             if not silent: 
-                print "Done! {0:d} iters".format(conv_crit.iteration)
+                print("Done! {0:d} iters".format(conv_crit.iteration))
             
              # Perform any defined user action
             if user_action is not None:
@@ -1760,9 +1762,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     # Screen output
     try:
         if not silent:
-            print '{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction),
+            print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
         elif show_solver_time:
-            print '\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)),
+            print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
     except:
         pass
     
@@ -1924,7 +1926,7 @@ class Visualizer_T(object):
         plt.pause(0.01)
         
         self.initialized = True
-        print "VIZUALIZER INITIALIZED..."
+        print("VIZUALIZER INITIALIZED...")
 
     def __call__(self, u, x, t):
         """Method to update the plot of model domain temperature.
@@ -2042,11 +2044,11 @@ def plot_trumpet(fname, start=0, end=-1, **kwargs):
     
     fh = None
 
-    if kwargs.has_key('axes'):
+    if 'axes' in kwargs:
         ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
+    elif 'Axes' in kwargs:
         ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
+    elif 'ax' in kwargs:
         ax = kwargs.pop('ax')
     else:
         fh = plt.figure(facecolor=figBG)
@@ -2111,11 +2113,11 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
 
     fh = None
 
-    if kwargs.has_key('axes'):
+    if 'axes' in kwargs:
         ax = kwargs.pop('axes')
-    elif kwargs.has_key('Axes'):
+    elif 'Axes' in kwargs:
         ax = kwargs.pop('Axes')
-    elif kwargs.has_key('ax'):
+    elif 'ax' in kwargs:
         ax = kwargs.pop('ax')
     else:
         fh = plt.figure(figsize=figsize,facecolor=figBG)
@@ -2267,8 +2269,8 @@ def test_FD_unfrw(scheme='theta', Nx=100, version='vectorized', fignum=99, theta
 
     plot_solution.update(initialTemperature(x), x, t[-1], 0, Layers)
     
-    print u                 
-    print 'CPU time:', cpu    
+    print(u)                 
+    print('CPU time:', cpu)    
     
     return u, dt, dx, surf_T(T)
 
@@ -2313,8 +2315,8 @@ def test_FD_stefan(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, an
 
     plot_solution.update(u, x, t[-1])
     
-    print u                 
-    print 'CPU time:', cpu    
+    print(u)                 
+    print('CPU time:', cpu)    
     
     return u, dt, dx, surf_T(T)
 
@@ -2357,8 +2359,8 @@ def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.in
 
     plot_solution.update(u, x, t[-1])
     
-    print u                 
-    print 'CPU time:', cpu    
+    print(u)                 
+    print('CPU time:', cpu)    
     
     return u, dt, dx, surf_T(T)
         
