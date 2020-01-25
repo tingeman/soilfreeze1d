@@ -4,8 +4,11 @@
 
 """
 TODOs:
-20200125:   Implement possibility to avoid file access and return full data result
-            Look at how to optimize with Numba (can't use **kwargs)
+20200125:   Look at how to optimize with Numba (can't use **kwargs)
+
+
+Completed:
+20200125:   MemoryStorage implemented for solver_theta_nug
 """
 
 
@@ -55,6 +58,8 @@ import warnings
 import fractions
 import decimal
 import numpy as np
+import numbers
+import array
 import matplotlib
 #matplotlib.use('Qt4Agg')
 import matplotlib.pyplot as plt
@@ -330,6 +335,121 @@ class FileStorage(object):
                 f.write('\n')
         self.count = 0
         # file is automatically closed when using the "with .. as" construct
+        
+    def finalize(self):
+        return self.filename
+
+
+class MemoryStorage(object):
+    """Class to handle storage of modelling results in memory.
+    
+    FileStorage.add(t, u) will add the results given by u, if
+    t (rounded to the specified number of decimals) is a 
+    multiple of "interval" (given in seconds)
+    
+    Values will be stored to memory only.
+    
+    """
+    
+    def __init__(self, interval=1., depths=None, nodes=None, decimals=6, append=False, buffer_size=None):
+        # append has no meaning for this storage class
+        # buffer_size has no meaning for this storage class
+        self.interval = interval
+        self.depths = depths
+        if isinstance(nodes, numbers.Number) and not hasattr(nodes, '__iter__'):
+            nodes = [nodes]
+        self.nodes = nodes
+        self.decimals = decimals
+        
+        self._header = []
+        self._buffer = array.array('d')
+        self._comments = []
+        self.count = 0
+        self.initialize()
+    
+    def initialize(self):
+        """Creates the storage file and writes column headers.
+        If file exists and should be appended, do not write header!        
+        """
+        
+        self._header = []
+        self._header.append('Time[seconds]')
+        self._header.append('UpperBoundary')
+
+        # Loop over all depths 
+        if self.nodes is not None:
+            for did in self.nodes:
+                self._header.append('{0:+.3f}'.format(self.depths[did]))
+        else:
+            for did in range(len(self.depths)):
+                self._header.append('{0:+.3f}'.format(self.depths[did]))
+        
+        self.count = 0
+        self._buffer = array.array('d')
+
+                
+    def add(self, t, ub, u):
+        """Adds the current time step, if t is a multiple of the
+        specified interval."""
+        
+        t = np.round(t, self.decimals) # round t to specified number of decimals
+        
+        if np.mod(t, self.interval) == 0:
+            # t is a multiple of interval...
+            self._buffer.append(t)   # store time
+            self._buffer.append(ub)  # store upper boundary value
+            if self.nodes is not None:
+                self._buffer.extend(u[self.nodes])  # store results 
+            else:
+                self._buffer.extend(u)              # store results 
+            self.count += 1    # increment counter
+        else:
+            # t is not at a regular storage interval, so do nothing
+            pass
+        
+    def add_comment(self, text):
+        """Adds a comment line."""
+        self._comments.append([self.count, text])
+    
+    def flush(self):
+        """This method does nothing, but must be present to not break
+        compatibilty with FileStorage."""
+        pass
+        
+    def finalize(self):
+        """Returns the buffer in numpy array format"""
+        arr = np.array(self._buffer)
+        if self.nodes is not None:
+            cols = len(self.nodes)+2
+        else:
+            cols = len(self.depths)+2
+        arr = np.array(self._buffer).reshape([-1, cols])
+        
+        return self._header, arr, self._comments
+
+
+class NoStorage(object):
+    """Class to handle when no storage is wanted.
+    all methods are just 'pass'.
+    """
+    
+    def __init__(self, interval=1., depths=None, nodes=None, decimals=6, append=False):
+        pass
+    
+    def initialize(self):
+        pass
+                
+    def add(self, t, ub, u):
+        pass
+        
+    def add_comment(self, text):
+        pass
+    
+    def flush(self):
+        pass
+        
+    def finalize(self):
+        return None
 
 
 class LayeredModel(object):
@@ -1295,6 +1415,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                      user_action=None,
                      conv_crit=None,
                      outfile='model_result.txt',
+                     storage=None,
                      outint=1*days,
                      outnodes=None,
                      silent=False,
@@ -1328,6 +1449,14 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     lb          Timeseries of upper boundary condition
     outnodes    List of indices of nodes to output in results file
     L           Latent heat of fusion (optional)
+    
+    storage     Instance of a storage class (FileStorage or MemoryStorage)
+                   If None, no data will be stored, only final result returned.
+                   If storage is None, and outfile is specified (default)
+                       a FileStorage class is instantiated.
+                   If storage is FileStorage or MemoryStorage, 
+                       outfile is neglected.
+                   
     """
     
     def calc_Dp(x):
@@ -1428,6 +1557,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     
     tstart = time.monotonic()
     
+    if isinstance(storage, (FileStorage, MemoryStorage, NoStorage)):
+        data_storage = storage
+    elif isinstance(outfile, str):
+        data_storage = FileStorage(outfile, depths=x, interval=outint, buffer_size=30)
+    else:
+        raise ValueError('Unreckognized data storage option.')
+    
     dt_stats = {}
     iter_stats = {}
     
@@ -1527,9 +1663,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     if user_action is not None:
         user_action(u_1, x, t0)
 
-    datafile = FileStorage(outfile, depths=x, 
-                           interval=outint, buffer_size=30)        
-    datafile.add(t0, ub(t0), u)
+    data_storage.add(t0, ub(t0), u)
        
     # solver_time always holds the time of the time-step
     # that is being calculated.
@@ -1836,7 +1970,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 user_action(u, x, solver_time())
             
              # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)     
+            data_storage.add(solver_time(), ub(solver_time()), u)     
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1873,18 +2007,18 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     except:
         pass
     
-    # Output statistics to datafile.
-    datafile.flush()
+    # Output statistics to data_storage.
+    data_storage.flush()
     tstop = time.monotonic()    
-    datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
+    data_storage.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
     
-    datafile.add_comment('--- Step-size statistics ----')
+    data_storage.add_comment('--- Step-size statistics ----')
     for key in sorted(dt_stats.keys()):
-        datafile.add_comment('{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'], dt_stats[key]['max_iter']))
+        data_storage.add_comment('{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'], dt_stats[key]['max_iter']))
     
-    datafile.add_comment('--- Iterations statistics ----')    
+    data_storage.add_comment('--- Iterations statistics ----')    
     for key in sorted(iter_stats.keys()):
-        datafile.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))        
+        data_storage.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))        
     
     return u, x, solver_time(), tstop-tstart
     
@@ -2296,23 +2430,23 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
 # --------------------------------------------------------------         
 
 def test_FileStorage():
-    datafile = FileStorage('testdata.txt', depths=[0, 1, 2, 3, 4], 
+    data_storage = FileStorage('testdata.txt', depths=[0, 1, 2, 3, 4], 
                            interval=1.0*days, buffer_size=5)
     dt = 0.5*days
     for n in np.arange(20):
-        datafile.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4]))
+        data_storage.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4]))
 
-    datafile.append = False
-    datafile.initialize()
+    data_storage.append = False
+    data_storage.initialize()
     dt = 0.5*days
     for n in np.arange(20):
-        datafile.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4])*2)
+        data_storage.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4])*2)
 
     
-    datafile.append = True
+    data_storage.append = True
     dt = 0.5*days
     for n in np.arange(20):
-        datafile.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4])*3)
+        data_storage.add(dt*n, np.ones(5)*n+np.array([0, 0.1, 0.2, 0.3, 0.4])*3)
     
     
 def test_LayeredModel():
