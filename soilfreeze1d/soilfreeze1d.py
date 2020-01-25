@@ -1254,9 +1254,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     return u, x, solver_time(), tstop-tstart
 
 
-def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
+def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                      Tinit=lambda x: -2., 
-                     ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
+                     ub=lambda x: 10., ub_type=1, lb=lambda x: -2., lb_type=1, grad=0.09, grad_ub=None,
                      user_action=None,
                      conv_crit=None,
                      outfile='model_result.txt',
@@ -1270,9 +1270,25 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
     approximation. Non Uniform Grid implemented using approximating Lagrange polynomials.
     Vectorized implementation and sparse (n-diagonal) coefficient matrix.
     
+    ub_type=1   Dirichlet type upper boundary condition (specified temperature)
+    ub_type=2   Neumann type upper boundary condition (specified gradient),
+                    implemented as linear gradient between two first nodes.
+    ub_type=3   Neumann type upper boundary condition (specified gradient),
+                    implemented using the legendre polynomial gradient.
+    ub_type=4   Neumann type upper boundary condition (time varying flux),
+                    implemented using the legendre polynomial gradient,
+                    dividing the current time step flux (retrieved from ub)
+                    by the effective thermal conductivity at the current step
+                    to calculate the gradient.
     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-    lb_type=2   Neumann type lower boundary condition (specified gradient)    
+    lb_type=2   Neumann type lower boundary condition (specified gradient),
+                    implemented as linear gradient between two first nodes.
+    lb_type=3   Neumann type lower boundary condition (specified gradient),
+                    implemented using the legendre polynomial gradient.
     grad        The gradient [K/m] to use for the lower boundary
+    grad_ub     The gradient [K/m] to use for the upper boundary
+    ub          Timeseries of upper boundary condition
+    lb          Timeseries of upper boundary condition
     outnodes    List of indices of nodes to output in results file
     """
     
@@ -1592,23 +1608,62 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 
                 diag_Dp_dot_k = np.diag(np.asarray(Dp_dot_k).reshape(-1))
                 
-                TMP1 = np.einsum('ij,i->ij',Dpp,k_eff)
-                TMP1 += diag_Dp_dot_k*Dp
-                I = np.identity(Nx)
+                TMP1 = np.einsum('ij,i->ij',Dpp,k_eff)   #   == (Dpp.T dot np.diag(k_eff)).T
+                TMP1 += diag_Dp_dot_k*Dp                 #   == diag(Dp*k) dot Dp
+                if sigma > 0:
+                    TMP1 += np.einsum('ij,i->ij',Dp,sigma*k_eff/x)
+                    
                 TMP = np.einsum('ij,i->ij',TMP1,float(solver_time.dt)/C_app)
+                I = np.identity(Nx)
 
             # Now calculate G1 and G2 matrices
             G1 = I - theta * TMP
-            G2 = I - (1-theta) * TMP
+            G2 = I + (1-theta) * TMP
             
             # Calculate the known vector d
             d = G2.dot(u_1)    # u_1 holds temperatures at time step n
             
+            # ----------------------------------------------------------
+            # TODO:
+            # Implement different types of upper boundary condition
+            # ----------------------------------------------------------
+
             # Insert upper boundary condition (Dirichlet)
-            G1[0,0] = 1
-            G1[0,1:] = 0
             
-            d[0] = ub(solver_time())    # upper boundary conditions      
+            if ub_type == 1:
+                # Dirichlet solution for lower boundary
+                G1[0,0] = 1
+                G1[0,1:] = 0
+                d[0] = ub(solver_time())  
+            elif ub_type == 2:
+                # First order Neumann solution for lower boundary
+                G1[0,0] = -1
+                G1[0,1] = 1
+                G1[0,2:] = 0
+                d[0] = dx[0]*grad_ub
+            elif ub_type == 3:
+                # Second order Neumann solution for lower boundary
+                
+                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
+                
+                # Use first derivative solution in G1 first row (a'N, b'N, c'N)
+                G1[0,:] = Dp[0,:]
+                d[0] = grad_ub
+            elif ub_type == 4:
+                # Neumann solution for lower boundary
+                # With flux specified instead of gradient
+                
+                # Use first derivative solution in G1 first row (a'N, b'N, c'N)
+                G1[0,:] = Dp[0,:]
+                d[0] = ub(solver_time())/k_eff[0]
+            else:
+                raise ValueError('Unknown lower boundary type')
+            
+            ## Insert upper boundary condition (Dirichlet)
+            #G1[0,0] = 1
+            #G1[0,1:] = 0
+            #
+            #d[0] = ub(solver_time())    # upper boundary conditions      
             
             # Insert lower boundary condition
             
@@ -1619,8 +1674,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1,
                 d[-1] = lb(solver_time())  
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
-                G1[-1,-1] = 1
                 G1[-1,-2] = -1
+                G1[-1,-1] = 1
                 G1[-1,:-2] = 0
                 d[-1] = dx[-1]*grad
             elif lb_type == 3:
