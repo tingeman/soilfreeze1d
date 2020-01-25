@@ -1,5 +1,14 @@
 #!/usr/bin/env python
 # As v1, but using scipy.sparse.diags instead of spdiags
+
+
+"""
+TODOs:
+20200125:   Implement possibility to avoid file access and return full data result
+            Look at how to optimize with Numba (can't use **kwargs)
+"""
+
+
 """
 Functions for solving the 1d heat equation:
       (k*u_x)_x = C*u_t + L*dtheta/dt 
@@ -108,6 +117,29 @@ class HarmonicTemperature(object):
         """
         return self.maat - self.amplitude * \
                     np.cos(2*np.pi*(time-self.lag)/(365.242*days))
+
+
+class SteppedInterpolator(object):
+    """Produces a stepped time series based on input time series.
+    If timeseries values X_n and X_n+1 are specified for time t_n and t_n+1, 
+    X_n will be returned for all times in the range [t_n <= t < t_n+1],
+    and X_n+1 will be returned for all times [t_n+1 <= t]
+    
+    times       Time in seconds.
+    values      Timeseries values.
+    """
+    
+    def __init__(self, times, values):
+        self.times = times
+        self.values = values
+    
+    def __call__(self, time):    
+        """Returns the value of the current step"""
+        try:
+            id = np.max(np.where(self.times<=time)[0])
+        except:
+            id = 0
+        return self.values[id]
 
 
 class TimeInterpolator(object):
@@ -249,7 +281,7 @@ class FileStorage(object):
         specified interval."""
         
         t = np.round(t, self.decimals) # round t to specified number of decimals
-        
+        #print('FileStorage time: {0} ...'.format(t), end='')
         if np.mod(t, self.interval) == 0:
             # t is a multiple of interval...
             self._buffer[self.count, 0] = t  # store time
@@ -263,6 +295,8 @@ class FileStorage(object):
             if self.count == self.buffer_size:
                 # We have filled the buffer, now write to disk
                 self.flush()
+            
+            #print('stored!')
         else:
             # t is not at a regular storage interval, so do nothing
             pass
@@ -296,7 +330,8 @@ class FileStorage(object):
                 f.write('\n')
         self.count = 0
         # file is automatically closed when using the "with .. as" construct
-        
+
+
 class LayeredModel(object):
     _descriptor =   {'names': ('Thickness', 'C',  'k',  'Soil_type'), 
                      'formats': ('f8',      'f8', 'f8', 'S50')}
@@ -816,7 +851,7 @@ class SolverTime(object):
         
     def __call__(self):
         """Return the current time."""
-        return float(self.time)
+        return np.round(self.time, decimals=9)
 
     def show(self):
         return
@@ -870,7 +905,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     show_solver_time    If silent, solver time may still be printed to indicate progress.
     """
 
-    tstart = time.clock()
+    tstart = time.monotonic()
     
     dt_stats = {}
     iter_stats = {}
@@ -978,7 +1013,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
         print('day:' + ' '*12, end=' ')
     
     # Time loop    
-    while solver_time() < t_end:      
+    while solver_time() <= t_end:      
         step += 1        
         
         # u_1 holds the temperatures at time step n
@@ -1240,7 +1275,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0, dt_min=360, theta=1,
     
     # Output statistics to datafile.
     datafile.flush()
-    tstop = time.clock()    
+    tstop = time.monotonic()    
     datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
     
     datafile.add_comment('--- Step-size statistics ----')
@@ -1264,7 +1299,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                      outnodes=None,
                      silent=False,
                      show_solver_time=True,
-                     use_sparse=False):
+                     use_sparse=False,
+                     L=None,
+                     ):
                  
     """Full solver for the model problem using the theta based finite difference 
     approximation. Non Uniform Grid implemented using approximating Lagrange polynomials.
@@ -1290,6 +1327,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     ub          Timeseries of upper boundary condition
     lb          Timeseries of upper boundary condition
     outnodes    List of indices of nodes to output in results file
+    L           Latent heat of fusion (optional)
     """
     
     def calc_Dp(x):
@@ -1388,7 +1426,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     
     #raise NotImplementedError('Non-uniform grid version of the solver not yet implemented')
     
-    tstart = time.clock()
+    tstart = time.monotonic()
     
     dt_stats = {}
     iter_stats = {}
@@ -1399,7 +1437,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
         else:
             conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
             
-    L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
+    if L is None:
+        L = 334*1e6 # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
     
     dx = x[1:] - x[0:-1]
     Nx = len(x)   # Number of nodes in grid
@@ -1499,10 +1538,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     solver_time.step()
     
     if silent and show_solver_time:
-        print('day:' + ' '*12, end=' ')
+        if t_end <= 24*3600:
+            print('seconds:' + ' '*12, end=' ')
+        else:
+            print('day:' + ' '*12, end=' ')
     
     # Time loop    
-    while solver_time() < t_end:
+    while solver_time() <= t_end:
         step += 1        
         
         # u_1 holds the temperatures at time step n
@@ -1514,7 +1556,10 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
             if not silent:
                 print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
             elif show_solver_time:
-                print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
+                if t_end <= 24*3600:
+                    print('\b'*11 + '{0:10.2f}'.format(solver_time()), end=' ')
+                else:
+                    print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
         except:
             pass
                 
@@ -1545,7 +1590,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
                 unfrw_u1 = n*phi
-
+        
+        #pdb.set_trace()
+        
         # Iterative scheme for estimating unfrozen water content
         convergence = False
         conv_crit.reset_iterator()
@@ -1650,12 +1697,12 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 G1[0,:] = Dp[0,:]
                 d[0] = grad_ub
             elif ub_type == 4:
-                # Neumann solution for lower boundary
+                # Neumann solution for upper boundary
                 # With flux specified instead of gradient
                 
                 # Use first derivative solution in G1 first row (a'N, b'N, c'N)
                 G1[0,:] = Dp[0,:]
-                d[0] = ub(solver_time())/k_eff[0]
+                d[0] = -ub(solver_time())/k_eff[0]
             else:
                 raise ValueError('Unknown lower boundary type')
             
@@ -1789,7 +1836,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 user_action(u, x, solver_time())
             
              # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)           
+            datafile.add(solver_time(), ub(solver_time()), u)     
             
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1819,13 +1866,16 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
         if not silent:
             print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time()/(1*days), solver_time.dt_fraction), end=' ')
         elif show_solver_time:
-            print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
+            if t_end <= 24*3600:
+                print('\b'*11 + '{0:10.2f}'.format(solver_time()), end=' ')
+            else:
+                print('\b'*11 + '{0:10.2f}'.format(solver_time()/(1*days)), end=' ')
     except:
         pass
     
     # Output statistics to datafile.
     datafile.flush()
-    tstop = time.clock()    
+    tstop = time.monotonic()    
     datafile.add_comment('cpu: {0:.3f} sec'.format(tstop-tstart))
     
     datafile.add_comment('--- Step-size statistics ----')
