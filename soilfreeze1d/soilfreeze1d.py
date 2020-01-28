@@ -5,10 +5,15 @@
 """
 TODOs:
 20200125:   Look at how to optimize with Numba (can't use **kwargs)
-
+            
+20200128:   Change Layered model class, so it calculates parameters
+            only based on temperatures and node-locations.
+            Will simplify main solver code and make it independent of
+            choice of parameterization for effective parameters
+            and unfrozen water content...
 
 Completed:
-20200125:   MemoryStorage implemented for solver_theta_nug
+20200125:   Implement possibility to avoid file access and return full data result
 """
 
 
@@ -562,6 +567,7 @@ class LayeredModel(object):
 # about convergence tests and keep track of iterations and when to 
 # step time or change time step...
 
+
 class LayeredModel_std(LayeredModel):
     pass
         
@@ -640,6 +646,82 @@ class LayeredModel_unfrw_swi(LayeredModel):
         """Calculates the effective heat capacity []."""
         return C_s*(1-n) + C_w*(n*phi) + C_i*(n*(1-phi))
         
+
+class LayeredModel_unfrw_swia(LayeredModel):
+    _descriptor = {'names': ('Thickness', 'n', 'S_w', 'C_s', 'C_w', 'C_i', 'C_a', 'k_s', 'k_w', 'k_i', 'k_a', 'alpha', 'beta', 'Tf', 'Soil_type'), 
+                   'formats': ('f8',      'f8', 'f8', 'f8',  'f8',  'f8',  'f8',  'f8',  'f8',  'f8',  'f8',  'f8',    'f8',   'f8', 'S50')}
+                         
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'unfrw_swia'
+        super(LayeredModel_unfrw_swia, self).__init__(**kwargs)
+            
+    def show(self, T1=-10, T2=2, fig=None):
+        
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+        
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure() # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+        
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers,2), (0,0), rowspan=nlayers)
+
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1,T2,300)
+        
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z+np.cumsum(self._layers['Thickness']))        
+        
+        # loop over all layers
+        for n in range(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])            
+            ax1.invert_yaxis()
+            
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers,2), (n,1)))
+            
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], self[n]['S_w'], self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'], 
+                                          self[n]['Tf'], Tstar, self[n]['n'], self[n]['S_w'])
+                                     
+            axes[-1].plot(T,unfrw,'-k')
+            axes[-1].set_ylim([0,np.round(np.max(unfrw)*1.1, 2)])
+            
+        plt.draw()        
+        plt.show()
+        
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        return Tf-np.power((S_w/a),(-1/b))
+            
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                             a*np.power(np.abs(T-Tf),-b),
+                             np.ones_like(T)*S_w)
+
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
+
+    def f_k_eff(self, k_s, k_w, k_i, k_a, n, phi, S_w):
+        """Calculates the effective thermal conductivity []."""
+        return k_s**(1-n)*k_w**(n*S_w*phi)*k_i**(n*S_w*(1-phi))*k_a**(n*(1-S_w))
+
+    def f_C_eff(self, C_s, C_w, C_i, C_a, n, phi, S_w):
+        """Calculates the effective heat capacity []."""
+        return C_s*(1-n) + C_w*(n*S_w*phi) + C_i*(n*S_w*(1-phi)) + C_a*(n*(1-S_w))
+
     
 class LayeredModel_unfrw_thfr(LayeredModel):
     _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha',  'beta',  'Tf', 'Soil_type'), 
@@ -1604,20 +1686,21 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
-        if not silent: print("Using unfrozen water parameters")
+        if not silent: print("Using unfrozen water parameters (th/fr)")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
         n = Layers.pick_values(x, 'n')
+        S_w = np.ones_like(n)
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
     elif Layers.parameter_set == 'unfrw_swi':
-        if not silent: print("Using unfrozen water parameters")
+        if not silent: print("Using unfrozen water parameters (swi)")
         k_s = Layers.pick_values(x, 'k_s')
         C_s = Layers.pick_values(x, 'C_s')
         k_w = Layers.pick_values(x, 'k_w')
@@ -1625,12 +1708,31 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
         k_i = Layers.pick_values(x, 'k_i')
         C_i = Layers.pick_values(x, 'C_i')
         n = Layers.pick_values(x, 'n')
+        S_w = np.ones_like(n)
         
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
             
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)        
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)        
+    elif Layers.parameter_set == 'unfrw_swia':
+        if not silent: print("Using unfrozen water parameters (swia)")
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        k_a = Layers.pick_values(x, 'k_a')
+        C_a = Layers.pick_values(x, 'C_a')
+        n = Layers.pick_values(x, 'n')
+        S_w = Layers.pick_values(x, 'S_w')
+        
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+            
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta) 
     elif Layers.parameter_set == 'stefan':
         if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
@@ -1717,6 +1819,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
                 C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
                 unfrw_u1 = n*phi
+
+            elif Layers.parameter_set == 'unfrw_swia':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, S_w)
+                
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, k_a, n, phi, S_w)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
+                unfrw_u1 = n*phi
                 
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
@@ -1732,12 +1841,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
         conv_crit.reset_iterator()
         for it in conv_crit.iterator():
             
-            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi', 'unfrw_swia' ]:
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
-                    C_add_1 = L * n * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
-                    C_add = C_add_1
+                    #C_add_1 = L * n * S_w * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    C_add = L * n * S_w * alpha * beta * np.abs(u_1-Tf)**(-beta-1)
+                    #C_add = C_add_1
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
@@ -1755,7 +1865,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                         warnings.simplefilter("ignore")
                         dudT = (unfrw_u-unfrw_u1)/(u-u_1)
                                         
-                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
+                    #C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
+                    C_add = np.where(np.isfinite(dudT), L*dudT, C_add)
             
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
@@ -1915,8 +2026,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
                 unfrw_u = 0.
                 convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
-                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi']:
-                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
+                if Layers.parameter_set  in ['unfrw_thfr', 'unfrw_swi', 'unfrw_swia']:
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, S_w)
                     unfrw_u = n*phi_u    
                     
                     if conv_crit.iteration != 0:       # Always do at least 1 iteration
