@@ -8,6 +8,7 @@ Created on Wed Apr 20 01:06:32 2016
 # import standard pythom modules
 import numpy as np
 import pdb
+from line_profiler import LineProfiler
 
 # import own modules
 import soilfreeze1d   # import the module containing the Finite Difference 
@@ -95,8 +96,8 @@ if __name__ == '__main__':
     outint = 10*days  # The interval at which results will be written to the file    
     
     # Plot initial condition
-    plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
-    plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
+    #plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
+    #plot_solution.initialize(initialTemperature(x), x, 0., name=outfile)
         
     # Switch animation on or off
     if animate:
@@ -104,20 +105,37 @@ if __name__ == '__main__':
     else:
         user_action = None
     
-    # Call Finite Difference engine    
-    u1, x1, t1, cpu1 = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
-                                             Tinit=initialTemperature, 
-                                             ub=surf_T, lb_type=2, grad=grad,
-                                             user_action=user_action,
-                                             outfile=outfile,
-                                             outint=outint,
-                                             silent=silent,
-                                             show_solver_time=True)
+    
+    lp = LineProfiler()
+    lp_wrapper = lp(soilfreeze1d.solver_theta_nug)
+    lp_wrapper(Layers, x, dt, T, 
+               Tinit=initialTemperature, 
+               ub=surf_T, lb_type=2, grad=grad,
+               user_action=user_action,
+               outfile=outfile,
+               outint=outint,
+               silent=silent,
+               show_solver_time=True,
+               use_sparse=False)
+    lp.print_stats()
+    
+    print('CPU time, nug: {0} s  (Nx: {1})'.format(cpu1, len(x1)))
+    
+#    # Call Finite Difference engine    
+#    u1, x1, t1, cpu1 = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
+#                                             Tinit=initialTemperature, 
+#                                             ub=surf_T, lb_type=2, grad=grad,
+#                                             user_action=user_action,
+#                                             outfile=outfile,
+#                                             outint=outint,
+#                                             silent=silent,
+#                                             show_solver_time=True)
     
     # plot final result
-    plot_solution.update(u1, x1, t1)
+    #plot_solution.update(u1, x1, t1)
 
-    print('CPU time, nug: {0} s  (Nx: {1})'.format(cpu1, len(x1)))
+    1/0
+
     
     # Define model domain properties
     Nx = 400        # The number of nodes in the model domain is Nx+1

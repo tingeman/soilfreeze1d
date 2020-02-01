@@ -39,6 +39,7 @@ can add visualization, error computations, data analysis,
 store solutions, etc.
 """
 
+import pdb
 import copy
 import fractions
 import numbers
@@ -53,6 +54,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
+from numba import jit, njit
 
 days = 3600. * 24  # number of seconds in a day
 
@@ -1308,7 +1310,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
-                    C_add_1 = L * n * alpha * beta * np.abs(u_1 - Tf) ** (-beta - 1)
+                    #C_add_1 = L * n * alpha * beta * np.abs(u_1 - Tf) ** (-beta - 1)
+                    C_add = L * n * alpha * beta * np.abs(u_1 - Tf) ** (-beta - 1)
                     #C_add = C_add_1
                 else:
                     # A previous iteration exist, so an estimate of the
@@ -1518,6 +1521,13 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
     # The model run has completed, now wrap up and print/output results
 
+    # The current time kept in solver_time is one time step ahead of the
+    # last temperature dataset calculated.
+    # So we step back the solver_time to represent the correct time
+    # of the current temperature vector (u)
+
+    solver_time.step_back()
+
     # Screen output
     try:
         if not silent:
@@ -1550,6 +1560,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     return u, x, solver_time(), tstop - tstart
 
 
+#@jit
 def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0,
                      Tinit=lambda x: -2.,
                      ub=lambda x: 10., ub_type=1, lb=lambda x: -2., lb_type=1, grad=0.09, grad_ub=None,
@@ -1920,9 +1931,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
                     # difference).
 
                     # Temporarily ignore division by zero warning.
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        dudT = (unfrw_u - unfrw_u1) / (u - u_1)
+                    #with warnings.catch_warnings():
+                    #    warnings.simplefilter("ignore")
+                    dudT = (unfrw_u - unfrw_u1) / (u - u_1)
 
                     # C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
                     C_add = np.where(np.isfinite(dudT), L * dudT, C_add)
@@ -1937,8 +1948,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
             else:
                 C_app = C_eff
 
-            if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)) or np.any(C_app <= 0):
-                raise ValueError('Invalid NaN, Inf or zero value encountered in apparent heat capacity!')
+            # When profiling, this comparison turned out to eat 5.6% of total computation time...!
+            # if np.any(np.isnan(C_app)) or np.any(np.isinf(C_app)) or np.any(C_app <= 0):
+            #     raise ValueError('Invalid NaN, Inf or zero value encountered in apparent heat capacity!')
 
             # if True:
             if use_sparse:
@@ -1951,7 +1963,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
 
                 s_TMP1 = (s_diag_k_eff * s_Dpp + s_diag_Dp_dot_k * s_Dp)
                 s_TMP2 = scipy.sparse.csr_matrix((float(solver_time.dt) / C_app, (idx, idx)), shape=(Nx, Nx))
-                s_I = scipy.sparse.identity(Nx, dtype='float', format='csr')
+                I = scipy.sparse.identity(Nx, dtype='float', format='csr')
                 TMP = s_TMP2 * s_TMP1
             else:
                 # Calculate matrices in dense format
@@ -1959,8 +1971,11 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
 
                 diag_Dp_dot_k = np.diag(np.asarray(Dp_dot_k).reshape(-1))
 
-                TMP1 = np.einsum('ij,i->ij', Dpp, k_eff)  # == (Dpp.T dot np.diag(k_eff)).T
-                TMP1 += diag_Dp_dot_k * Dp  # == diag(Dp*k) dot Dp
+                #TMP1 = np.einsum('ij,i->ij', Dpp, k_eff)  # == (Dpp.T dot np.diag(k_eff)).T
+                #TMP1 += diag_Dp_dot_k * Dp  # == diag(Dp*k) dot Dp
+                
+                TMP1 = np.einsum('ij,i->ij', Dpp, k_eff) + diag_Dp_dot_k * Dp 
+                
                 if sigma > 0:
                     TMP1 += np.einsum('ij,i->ij', Dp, sigma * k_eff / x)
 
@@ -1978,16 +1993,18 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
             # Insert upper boundary condition
             # ----------------------------------------------------------
 
+            #pdb.set_trace()
             if ub_type == 1:
                 # Dirichlet solution for upper boundary
                 G1[0, 0] = 1
-                G1[0, 1:] = 0
+                G1[0, 1] = 0
+                G1[0, 2] = 0
                 d[0] = ub(solver_time())
             elif ub_type == 2:
                 # First order Neumann solution for upper boundary
                 G1[0, 0] = -1
                 G1[0, 1] = 1
-                G1[0, 2:] = 0
+                G1[0, 2] = 0
                 d[0] = dx[0] * grad_ub
             elif ub_type == 3:
                 # Second order Neumann solution for upper boundary
@@ -2014,13 +2031,14 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
                 G1[-1, -1] = 1
-                G1[-1, :-1] = 0
+                G1[-1, -2] = 0
+                G1[-1, -3] = 0
                 d[-1] = lb(solver_time())
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 G1[-1, -2] = -1
                 G1[-1, -1] = 1
-                G1[-1, :-2] = 0
+                G1[-1, -3] = 0
                 d[-1] = dx[-1] * grad
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
@@ -2128,6 +2146,13 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
             solver_time.step()
 
     # The model run has completed, now wrap up and print/output results
+
+    # The current time kept in solver_time is one time step ahead of the
+    # last temperature dataset calculated.
+    # So we step back the solver_time to represent the correct time
+    # of the current temperature vector (u)
+
+    solver_time.step_back()
 
     # Screen output
     try:
