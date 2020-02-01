@@ -1057,14 +1057,17 @@ class SolverTime(object):
 
 def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                  Tinit=lambda x: -2.,
-                 ub=lambda x: 10., lb=lambda x: -2., lb_type=1, grad=0.09,
+                 ub=lambda x: 10., ub_type=1, lb=lambda x: -2., lb_type=1, grad=0.09, grad_ub=None,
                  user_action=None,
                  conv_crit=None,
                  outfile='model_result.txt',
+                 storage=None,
                  outint=1 * days,
                  outnodes=None,
                  silent=False,
-                 show_solver_time=True):
+                 show_solver_time=True,
+                 L=None,
+                 ):
     """Uniform grid solver using the theta based finite difference 
     approximation. Vectorized implementation and sparse (tridiagonal)
     coefficient matrix.
@@ -1101,6 +1104,15 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
     tstart = time.monotonic()
 
+    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)  # mesh points in space
+
+    if isinstance(storage, (FileStorage, MemoryStorage, NoStorage)):
+        data_storage = storage
+    elif isinstance(outfile, str):
+        data_storage = FileStorage(outfile, depths=x, nodes=outnodes, interval=outint, buffer_size=30)
+    else:
+        raise ValueError('Unreckognized data storage option.')
+
     dt_stats = {}
     iter_stats = {}
 
@@ -1110,9 +1122,9 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         else:
             conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
 
-    L = 334 * 1e6  # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
+    if L is None:
+        L = 334 * 1e6  # [kJ/kg] => *1000[J/kJ]*1000[kg/m^3] => [J/m^3]
 
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)  # mesh points in space
     dx = x[1] - x[0]
 
     u = np.zeros(Nx)  # solution array at t[tid+1]
@@ -1134,40 +1146,60 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
     # Get constant layer parameters distributed on the grid
     if Layers.parameter_set == 'unfrw_thfr':
-        if not silent: print("Using unfrozen water parameters")
+        if not silent: print("Using unfrozen water parameters (th/fr)")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        _n = Layers.pick_values(x, 'n')
+        n = Layers.pick_values(x, 'n')
+        S_w = np.ones_like(n)
 
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
     elif Layers.parameter_set == 'unfrw_swi':
-        if not silent: print("Using unfrozen water parameters")
+        if not silent: print("Using unfrozen water parameters (swi)")
         k_s = Layers.pick_values(x, 'k_s')
         C_s = Layers.pick_values(x, 'C_s')
         k_w = Layers.pick_values(x, 'k_w')
         C_w = Layers.pick_values(x, 'C_w')
         k_i = Layers.pick_values(x, 'k_i')
         C_i = Layers.pick_values(x, 'C_i')
-        _n = Layers.pick_values(x, 'n')
+        n = Layers.pick_values(x, 'n')
+        S_w = np.ones_like(n)
 
         alpha = Layers.pick_values(x, 'alpha')
         beta = Layers.pick_values(x, 'beta')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(Tf, 1.0, alpha, beta)
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
+    elif Layers.parameter_set == 'unfrw_swia':
+        if not silent: print("Using unfrozen water parameters (swia)")
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        k_a = Layers.pick_values(x, 'k_a')
+        C_a = Layers.pick_values(x, 'C_a')
+        n = Layers.pick_values(x, 'n')
+        S_w = Layers.pick_values(x, 'S_w')
+
+        alpha = Layers.pick_values(x, 'alpha')
+        beta = Layers.pick_values(x, 'beta')
+
+        Tf = Layers.pick_values(x, 'Tf')
+        Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
     elif Layers.parameter_set == 'stefan':
         if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
-        _n = Layers.pick_values(x, 'n')
+        n = Layers.pick_values(x, 'n')
 
         # interval = Layers.interval
         # Tf = Layers.Tf
@@ -1183,6 +1215,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         C_fr = np.nan
         phi = 1.
         unfrw_u1 = 0.
+        S_w = np.nan
+        n = np.nan
 
     # Set initial condition
     for i in range(0, Nx):
@@ -1193,9 +1227,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     if user_action is not None:
         user_action(u_1, x, t0)
 
-    datafile = FileStorage(outfile, depths=x, nodes=outnodes,
-                           interval=outint, buffer_size=30)
-    datafile.add(t0, ub(t0), u)
+    data_storage.add(t0, ub(t0), u)
 
     # solver_time always holds the time of the time-step
     # that is being calculated.
@@ -1204,7 +1236,10 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     solver_time.step()
 
     if silent and show_solver_time:
-        print('day:' + ' ' * 12, end=' ')
+        if t_end <= 24 * 3600:
+            print('seconds:' + ' ' * 12, end=' ')
+        else:
+            print('day:' + ' ' * 12, end=' ')
 
     # Time loop    
     while solver_time() <= t_end:
@@ -1220,7 +1255,10 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time() / (1 * days),
                                                                      solver_time.dt_fraction), end=' ')
             elif show_solver_time:
-                print('\b' * 11 + '{0:10.2f}'.format(solver_time() / (1 * days)), end=' ')
+                if t_end <= 24 * 3600:
+                    print('\b' * 11 + '{0:10.2f}'.format(solver_time()), end=' ')
+                else:
+                    print('\b' * 11 + '{0:10.2f}'.format(solver_time() / (1 * days)), end=' ')
         except:
             pass
 
@@ -1236,21 +1274,28 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = _n * phi
+                unfrw_u1 = n * phi
 
             elif Layers.parameter_set == 'unfrw_swi':
                 phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, 1.0)
 
-                k_eff = Layers.f_k_eff(k_s, k_w, k_i, _n, phi)
-                C_eff = Layers.f_C_eff(C_s, C_w, C_i, _n, phi)
-                unfrw_u1 = _n * phi
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, n, phi)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, n, phi)
+                unfrw_u1 = n * phi
+
+            elif Layers.parameter_set == 'unfrw_swia':
+                phi = Layers.f_unfrw_fraction(u_1, alpha, beta, Tf, Tstar, S_w)
+
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, k_a, n, phi, S_w)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
+                unfrw_u1 = n * phi
 
             elif Layers.parameter_set == 'stefan':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
-                unfrw_u1 = _n * phi
+                unfrw_u1 = n * phi
 
         F = solver_time.dt / (2 * dx ** 2)
 
@@ -1263,8 +1308,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
-                    C_add_1 = L * _n * alpha * beta * np.abs(u_1 - Tf) ** (-beta - 1)
-                    C_add = C_add_1
+                    C_add_1 = L * n * alpha * beta * np.abs(u_1 - Tf) ** (-beta - 1)
+                    #C_add = C_add_1
                 else:
                     # A previous iteration exist, so an estimate of the
                     # next time step exists. Use that to calculate a finite
@@ -1282,7 +1327,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                         warnings.simplefilter("ignore")
                         dudT = (unfrw_u - unfrw_u1) / (u - u_1)
 
-                    C_add = np.where(np.isfinite(dudT), L * dudT, C_add_1)
+                    #C_add = np.where(np.isfinite(dudT), L * dudT, C_add_1)
+                    C_add = np.where(np.isfinite(dudT), L * dudT, C_add)
 
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
@@ -1290,7 +1336,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
             elif Layers.parameter_set == 'stefan':
                 C_app = np.where(np.logical_and(np.less(u, Tf), np.
                                                 greater_equal(u, Tf - interval)),
-                                 C_eff + L * _n / interval, C_eff)
+                                 C_eff + L * n / interval, C_eff)
             else:
                 C_app = C_eff
 
@@ -1302,73 +1348,90 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
             B_m[1:-1] = F * (k_eff[0:-2] + 2 * k_eff[1:-1] + k_eff[2:]) / C_app[1:-1]
             C_m = F * (k_eff[0:-1] + k_eff[1:]) / C_app[0:-1]
 
-            # Compute diagonal elements for lower boundary point
+            # Compute diagonal elements for lower boundary point (if Neumann)
             A_N = F * (k_eff[Nx - 1] + k_eff[Nx - 2]) / C_app[Nx - 1]  # node id Nx-1 is the last node (N)
             B_N = F * (k_eff[Nx - 2] + 3 * k_eff[Nx - 1]) / C_app[Nx - 1]
             C_N = F * (2 * k_eff[Nx - 1]) / C_app[Nx - 1]
+
+            # Compute diagonal elements for upper boundary point (if Neumann)
+            A_1 = F * (2 * k_eff[0]) / C_app[0]  # node id 0 is the first node (1)
+            B_1 = F * (3 * k_eff[0] + k_eff[1]) / C_app[0]
+            C_1 = F * (k_eff[0] + k_eff[1]) / C_app[0]
 
             # Compute sparse matrix (scipy format)
             diagonal[1:-1] = 1 + theta * B_m[1:-1]
             lower = -theta * A_m  # 1
             upper = -theta * C_m  # 1
 
-            # Insert boundary conditions (Dirichlet)
-            diagonal[0] = 1
-            upper[0] = 0
+            # Compute known vector
+            b[1:-1] = u_1[1:-1] + (1 - theta) * (A_m[0:-1] * u_1[:-2] - B_m[1:-1] * u_1[1:-1] + C_m[1:] * u_1[2:])
+
+            # ----------------------------------------------------------
+            # Insert upper boundary condition
+            # ----------------------------------------------------------
+
+            if ub_type == 1:
+                # Dirichlet solution for upper boundary
+                diagonal[0] = 1
+                upper[0] = 0
+                b[0] = ub(solver_time())
+                # here ub time series provides temperatures
+            elif ub_type == 2:
+                # First order Neumann solution for upper boundary
+                diagonal[0] = -1
+                upper[0] = 1
+                b[0] = dx[0] * grad_ub
+            elif ub_type == 3:
+                # Second order Neumann solution for upper boundary
+                diagonal[0] = 1 + theta * B_1
+                upper[0] = -theta * (A_1 + C_1)
+                b[0] = u_1[0] + (1 - theta) * ((A_1 + C_1) * u_1[2] - B_1 * u_1[1]) - 2 * A_1 * dx * grad
+            elif ub_type == 4:
+                # Neumann solution for upper boundary
+                # With flux specified instead of gradient
+
+                # The flux equals negative thermal conductivity times the gradient of temperature
+
+                # Use first derivative solution
+                diagonal[0] = -1
+                upper[0] = 1
+                b[0] = -ub(solver_time()) / k_eff[0] * dx[0]
+                # here ub time series provides fluxes
+            else:
+                raise ValueError('Unknown upper boundary type')
+
+            # ----------------------------------------------------------
+            # Insert lower boundary condition
+            # ----------------------------------------------------------
 
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
                 diagonal[Nx - 1] = 1
                 lower[-1] = 0
+                b[-1] = lb(solver_time())
             elif lb_type == 2:
                 # First order Neumann solution for lower boundary
                 diagonal[Nx - 1] = 1
                 lower[-1] = -1
+                b[-1] = dx * grad
             elif lb_type == 3:
                 # Second order Neumann solution for lower boundary
                 diagonal[Nx - 1] = 1 + theta * B_N
                 lower[-1] = -theta * (A_N + C_N)
+                b[-1] = u_1[-1] + (1 - theta) * ((A_N + C_N) * u_1[-2] - B_N * u_1[-1]) + 2 * C_N * dx * grad
             else:
                 raise ValueError('Unknown lower boundary type')
+
+            # ----------------------------------------------------------
+            # Solve equation system
+            # ----------------------------------------------------------
 
             U = scipy.sparse.diags(diagonals=[diagonal, lower, upper],
                                    offsets=[0, -1, 1], shape=(Nx, Nx),
                                    format='csr')
 
-            # Compute known vector
-            b[1:-1] = u_1[1:-1] + (1 - theta) * (A_m[0:-1] * u_1[:-2] - B_m[1:-1] * u_1[1:-1] + C_m[1:] * u_1[2:])
-            b[0] = ub(solver_time())  # upper boundary conditions
-
-            # Add lower boundary condition
-            if lb_type == 1:
-                # Dirichlet solution for lower boundary
-                b[-1] = lb(solver_time())
-            elif lb_type == 2:
-                # First order Neumann solution for lower boundary
-                b[-1] = dx * grad
-            elif lb_type == 3:
-                # First order Neumann solution for lower boundary
-                b[-1] = u_1[-1] + (1 - theta) * ((A_N + C_N) * u_1[-2] - B_N * u_1[-1]) + 2 * C_N * dx * grad
-
             # Solve the system of equations
             u[:] = scipy.sparse.linalg.spsolve(U, b)
-
-            # Should not be necessary ???
-            #            # Add upper boundary condition
-            #            u[0] = ub(solver_time())    # upper boundary condition
-            #
-            #            # Add lower boundary condition
-            #            if lb_type == 1:
-            #                # Dirichlet solution for lower boundary
-            #                u[-1] = lb(solver_time())
-            #            elif lb_type == 2:
-            #                # First order Neumann solution for lower boundary
-            #                # u[-1] = dx*grad
-            #                pass
-            #            elif lb_type == 3:
-            #                # First order Neumann solution for lower boundary
-            #                # u[-1] = u[-1] + (1-theta) * ((A_N+C_N)*u[-2] - B_N*u[-1]) + 2*C_N*dx*grad
-            #                pass
 
             # NOW HANDLE CONVERGENCE TESTING
 
@@ -1377,8 +1440,8 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
                 if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
-                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, 1.0)
-                    unfrw_u = _n * phi_u
+                    phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, S_w)
+                    unfrw_u = n * phi_u
 
                     if conv_crit.iteration != 0:  # Always do at least 1 iteration
                         convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
@@ -1388,7 +1451,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
                 elif Layers.parameter_set == 'stefan':
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
-                    unfrw_u = _n * phi_u
+                    unfrw_u = n * phi_u
 
                     convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
 
@@ -1431,7 +1494,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 user_action(u, x, solver_time())
 
             # Add data to data file buffer
-            datafile.add(solver_time(), ub(solver_time()), u)
+            data_storage.add(solver_time(), ub(solver_time()), u)
 
             # Store some statistics for time step and number of iterations.
             if solver_time.dt not in dt_stats:
@@ -1461,30 +1524,33 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
             print('{0:6d}, t: {1:10.2f}, dtf: {2:>7s}   '.format(step, solver_time() / (1 * days),
                                                                  solver_time.dt_fraction), end=' ')
         elif show_solver_time:
-            print('\b' * 11 + '{0:10.2f}'.format(solver_time() / (1 * days)), end=' ')
+            if t_end <= 24 * 3600:
+                print('\b' * 11 + '{0:10.2f}'.format(solver_time()), end=' ')
+            else:
+                print('\b' * 11 + '{0:10.2f}'.format(solver_time() / (1 * days)), end=' ')
     except:
         pass
 
     # Output statistics to datafile.
-    datafile.flush()
+    data_storage.flush()
     tstop = time.monotonic()
-    datafile.add_comment('cpu: {0:.3f} sec'.format(tstop - tstart))
+    data_storage.add_comment('cpu: {0:.3f} sec'.format(tstop - tstart))
 
-    datafile.add_comment('--- Step-size statistics ----')
+    data_storage.add_comment('--- Step-size statistics ----')
     for key in sorted(dt_stats.keys()):
-        datafile.add_comment(
+        data_storage.add_comment(
             '{1} steps with step-size: {0} s.   Max. {2} iterations at this step size.'.format(key, dt_stats[key]['N'],
                                                                                                dt_stats[key][
                                                                                                    'max_iter']))
 
-    datafile.add_comment('--- Iterations statistics ----')
+    data_storage.add_comment('--- Iterations statistics ----')
     for key in sorted(iter_stats.keys()):
-        datafile.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))
+        data_storage.add_comment('{0} steps with {1} iterations'.format(iter_stats[key], key))
 
     return u, x, solver_time(), tstop - tstart
 
 
-def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
+def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0,
                      Tinit=lambda x: -2.,
                      ub=lambda x: 10., ub_type=1, lb=lambda x: -2., lb_type=1, grad=0.09, grad_ub=None,
                      user_action=None,
@@ -1632,7 +1698,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
     if isinstance(storage, (FileStorage, MemoryStorage, NoStorage)):
         data_storage = storage
     elif isinstance(outfile, str):
-        data_storage = FileStorage(outfile, depths=x, interval=outint, buffer_size=30)
+        data_storage = FileStorage(outfile, depths=x, nodes=outnodes, interval=outint, buffer_size=30)
     else:
         raise ValueError('Unreckognized data storage option.')
 
@@ -1745,6 +1811,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
         C_fr = np.nan
         phi = 1.
         unfrw_u1 = 0.
+        S_w = np.nan
+        n = np.nan
 
     # Set initial condition
     for i in range(0, Nx):
@@ -1907,25 +1975,22 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
             d = G2.dot(u_1)  # u_1 holds temperatures at time step n
 
             # ----------------------------------------------------------
-            # TODO:
-            # Implement different types of upper boundary condition
+            # Insert upper boundary condition
             # ----------------------------------------------------------
 
-            # Insert upper boundary condition (Dirichlet)
-
             if ub_type == 1:
-                # Dirichlet solution for lower boundary
+                # Dirichlet solution for upper boundary
                 G1[0, 0] = 1
                 G1[0, 1:] = 0
                 d[0] = ub(solver_time())
             elif ub_type == 2:
-                # First order Neumann solution for lower boundary
+                # First order Neumann solution for upper boundary
                 G1[0, 0] = -1
                 G1[0, 1] = 1
                 G1[0, 2:] = 0
                 d[0] = dx[0] * grad_ub
             elif ub_type == 3:
-                # Second order Neumann solution for lower boundary
+                # Second order Neumann solution for upper boundary
 
                 # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
 
@@ -1942,13 +2007,9 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
             else:
                 raise ValueError('Unknown lower boundary type')
 
-            ## Insert upper boundary condition (Dirichlet)
-            # G1[0,0] = 1
-            # G1[0,1:] = 0
-            #
-            # d[0] = ub(solver_time())    # upper boundary conditions
-
+            # ----------------------------------------------------------
             # Insert lower boundary condition
+            # ----------------------------------------------------------
 
             if lb_type == 1:
                 # Dirichlet solution for lower boundary
@@ -1972,40 +2033,16 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0, dt_min=360, theta=1, sigma=0,
             else:
                 raise ValueError('Unknown lower boundary type')
 
+            # ----------------------------------------------------------
+            # Solve equation system
+            # ----------------------------------------------------------
+
             if use_sparse:
                 # Solve system of equations
                 u[:] = scipy.sparse.linalg.spsolve(G1, d)
             else:
                 u[:] = np.linalg.solve(G1, d)
 
-            # pdb.set_trace()
-
-            # Should not be necessary
-            #            # Add upper boundary condition
-            #            u[0] = ub(solver_time())    # upper boundary conditions
-            #
-            #            # Add lower boundary condition
-            #
-            #            if lb_type == 1:
-            #                # Dirichlet solution for lower boundary
-            #                G1[-1,-1] = 1
-            #                G1[-1,:-2] = 0
-            #                u[-1] = lb(solver_time())
-            #            elif lb_type == 2:
-            #                # First order Neumann solution for lower boundary
-            #                G1[-1,-1] = 1
-            #                G1[-1,-2] = -1
-            #                #u[-1] = dx[-1]*grad
-            #            elif lb_type == 3:
-            #                # Second order Neumann solution for lower boundary
-            #
-            #                # NO THIS SOLUTION IS STILL ONLY FIRST ORDER ACCURATE!!!
-            #
-            #                # Use first derivative solution in G1 last row (a'N, b'N, c'N)
-            #                G1[-1,:] = Dp[-1,:]
-            #                #u[-1] = grad
-            #            else:
-            #                raise ValueError('Unknown lower boundary type')
 
             # NOW HANDLE CONVERGENCE TESTING
 
