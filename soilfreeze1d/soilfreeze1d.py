@@ -1326,8 +1326,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                     # difference).
 
                     # Temporarily ignore division by zero warning.
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
+                    with np.errstate(divide='ignore',invalid='ignore'):
                         dudT = (unfrw_u - unfrw_u1) / (u - u_1)
 
                     #C_add = np.where(np.isfinite(dudT), L * dudT, C_add_1)
@@ -1933,7 +1932,8 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
                     # Temporarily ignore division by zero warning.
                     #with warnings.catch_warnings():
                     #    warnings.simplefilter("ignore")
-                    dudT = (unfrw_u - unfrw_u1) / (u - u_1)
+                    with np.errstate(divide='ignore',invalid='ignore'):
+                        dudT = (unfrw_u - unfrw_u1) / (u - u_1)
 
                     # C_add = np.where(np.isfinite(dudT), L*dudT, C_add_1)
                     C_add = np.where(np.isfinite(dudT), L * dudT, C_add)
