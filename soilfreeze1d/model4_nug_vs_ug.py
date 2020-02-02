@@ -112,12 +112,12 @@ if __name__ == '__main__':
                                              outfile=outfile,
                                              outint=outint,
                                              silent=silent,
-                                             show_solver_time=False)
+                                             show_solver_time=True)
     
     # plot final result
     plot_solution.update(u1, x1, t1)
 
-    print 'CPU time, nug: {0} s  (Nx: {1})'.format(cpu1, len(x1))
+    print('CPU time, nug: {0} s  (Nx: {1})'.format(cpu1, len(x1)))
     
     # Define model domain properties
     Nx = 400        # The number of nodes in the model domain is Nx+1
@@ -135,9 +135,9 @@ if __name__ == '__main__':
                                                  outint=outint,
                                                  outnodes=[0,1,2,3,5,8,13,21],
                                                  silent=silent,
-                                                 show_solver_time=False)
+                                                 show_solver_time=True)
     
     plot_solution.add(u2, x2, t2, 'b')    
 
-    print 'CPU time, ug: {0} s  (Nx: {1})'.format(cpu2, len(x2))
+    print('CPU time, ug: {0} s  (Nx: {1})'.format(cpu2, len(x2)))
     

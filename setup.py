@@ -25,7 +25,7 @@ if __name__ == "__main__":
     setup(
         zip_safe=False,
         name="soilfreeze1d",
-        version="0.6",
+        version="1.0",
         description="Package for computing ground temperatures using finite difference method.",
         author="Thomas Ingeman-Nielsen",
         author_email="tin@byg.dtu.dk",
@@ -33,8 +33,8 @@ if __name__ == "__main__":
         keywords=["permafrost", "numerical model", "finite differences"],
         classifiers=[
             "Programming Language :: Python",
-            "Programming Language :: Python :: 2.7",
-            "Development Status :: 3 - Alpha",
+            "Programming Language :: Python :: 3",
+            "Development Status :: Beta",
             "Operating System :: Microsoft :: Windows",
             "License :: OSI Approved :: GNU General Public License (GPL)",
             "Intended Audience :: Science/Research",

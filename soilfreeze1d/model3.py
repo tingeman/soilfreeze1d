@@ -124,11 +124,11 @@ if __name__ == '__main__':
     plot_solution.update(u, x, t)
     
     # Print the time spent
-    print ' '
-    print ' '
-    print 'Spin-up run, CPU time: {0:.3f} s'.format(cpu)
-    print ' '
-    print "Waiting 5 seconds (inspect model result)"
+    print(' ')
+    print(' ')
+    print('Spin-up run, CPU time: {0:.3f} s'.format(cpu))
+    print(' ')
+    print("Waiting 5 seconds (inspect model result)")
     time.sleep(5)
     
     
@@ -185,7 +185,7 @@ if __name__ == '__main__':
     else:
         user_action = None
     
-    print "Waiting 5 seconds before commencing new run (inspect initial model)"
+    print("Waiting 5 seconds before commencing new run (inspect initial model)")
     time.sleep(5)
     
     # Call Finite Difference engine    
@@ -199,9 +199,9 @@ if __name__ == '__main__':
     # plot final result
     plot_solution.update(u, x, t)
     
-    print ' '
-    print ' '
-    print 'Final run, CPU time: {0:.3f} s'.format(cpu)    
-    print ' '
-    print 'Close figure to return focus to the terminal...'
+    print(' ')
+    print(' ')
+    print('Final run, CPU time: {0:.3f} s'.format(cpu))    
+    print(' ')
+    print('Close figure to return focus to the terminal...')
     plot_solution.show()
