@@ -54,7 +54,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse
 import scipy.sparse.linalg
-from numba import jit, njit
+#from numba import jit, njit
 
 days = 3600. * 24  # number of seconds in a day
 
