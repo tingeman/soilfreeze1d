@@ -3,40 +3,21 @@
 
 """
 Functions for solving the 1d heat equation:
-      (k*u_x)_x = C*u_t + L*dtheta/dt 
+      (k*u_x)_x = C*u_t + L*dtheta/dt
+
 with boundary conditions u(t,0)=ub(t) and u(t,L)=lb(t) 
 or du(t,L)/dx=grad, for t in [t0,T+t0].
 
-Upper boundary is a dirichlet type specified forcing
-temperature, while lower boundary is either dirichlet
-type or neumann type (specified gradient).
+Upper boundary may be chosen as a dirichlet type specified forcing temperature,
+a Neumann type gradient, or a Neumann type flux boundary.
+The lower boundary is either dirichlet type or Neumann type.
 The initial condition is u(x,0)=initialTemperature(x).
 
-The following naming convention of variables are used.
-
-===== ==========================================================
-Name  Description
-===== ==========================================================
-Nx    The total number of mesh cells; mesh points are numbered
-      from 0 to Nx.
-t0    The start time of the simulation      
-T     The duration of the simulation.
-I     Initial condition (Python function of x).
-a     Variable coefficient (constant).
-L     Length of the domain ([0,L]).
-x     Mesh points in space.
-t     Mesh points in time.
-n     Index counter in time.
-u     Unknown at current/new time level.
-u_1   u at the previous time level.
-dx    Constant mesh spacing in x.
-dt    Constant mesh spacing in t.
-===== ==========================================================
-
-user_action is a function of (u, x, t, n), u[i] is the solution at
-spatial mesh point x[i] at time t[n], where the calling code
-can add visualization, error computations, data analysis,
-store solutions, etc.
+A user function may be provided to handle plotting or other house keeping
+after each iteration. user_action must be a function of (u, x, t, n),
+where u[i] is the solution at spatial mesh point x[i] at time t[n],
+user_action can be used by the calling code can add visualization,
+error computations, data analysis, store solutions, etc.
 """
 
 import pdb
