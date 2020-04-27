@@ -81,7 +81,8 @@ class ConstantTemperature(object):
     passed dureing initialization.
     
     T = constant temperature
-    
+
+    Initialization arguments:
     time       Time in seconds.
     """
 
@@ -102,27 +103,80 @@ class HarmonicTemperature(object):
     When called with time as argument, the class returns a temperature
     according to the following formula:
     
-    T = maat - amplitude * cos(2*pi*(time-lag)/(365.242*days))
-    
+    T = maat - amplitude * cos(2*pi*(time-lag)/(period*days))
+
+    Initialization arguments:
     time       Time in seconds.
     maat       Mean Annual Airt Temperature.
     amplitude  Amplitude of the yearly variation.
     lag        Phase lag (number of days to delay the harmonic oscillation).
+    period     The number of days in a year, defaults to 365.242 days
 
-    The period of the oscillation is 365.242 days = 1 year
+    Example of usage:
+
+    air_temp = soilfreeze1d.HarmonicTemperature(maat=-3, amplitude=10, period=365)
+    at = air_temp(0) # to get the air temperature on January 1st, at 00:00 am
+                        (remember python is zero-based, day 0 = January 1st)
+    at = air_temp(265.5) # to get the air temperature on day 265 of the year at noon.
+
+    This implementation does not include daily variation. This could be implemented
+    by adding a second harmonic oscillation to the primary seadonal oscillation.
     """
 
-    def __init__(self, maat=-2, amplitude=8, lag=0 * days):
+    def __init__(self, maat=-2, amplitude=8, lag=0 * days, period=365.242):
         self.maat = maat
         self.amplitude = amplitude
         self.lag = lag
+        self.period = period
 
     def __call__(self, time):
         """Returns the temperature at the specified time using a harmonic
         temperature variation.
         """
         return self.maat - self.amplitude * \
-            np.cos(2 * np.pi * (time - self.lag) / (365.242 * days))
+            np.cos(2 * np.pi * (time - self.lag) / (self.period * days))
+
+
+class HarmonicTemperatureWithGradient(HarmonicTemperature):
+    """Calculates harmonically varying temperature, which could be used to
+    approximate the seasonal variation air temperature and applied as upper
+    boundary condition. This class includes a possibility to add a linear
+    increase in the average temperature over time, f.x. to simulate
+    climate warming.
+
+    When called with time as argument, the class returns a temperature
+    according to the following formula:
+
+    T = maat - amplitude * cos(2*pi*(time-lag)/(period*days)) + grad*time/(period*days)
+
+    Initialization arguments:
+    time       Time in seconds.
+    maat       Mean Annual Airt Temperature.
+    amplitude  Amplitude of the yearly variation.
+    lag        Phase lag (number of days to delay the harmonic oscillation).
+    period     The number of days in a year, defaults to 365.242 days
+    grad       Gradual change in MAAT given in degrees/year
+
+    Example of usage:
+    air_temp = soilfreeze1d.HarmonicTemperatureWithGradient(maat=-3, amplitude=10, period=365, grad=0.04)
+    at = air_temp(0) # to get the air temperature on January 1st, at 00:00 am
+                        (remember python is zero-based, day 0 = January 1st)
+    at = air_temp(265.5) # to get the air temperature on day 265 of the year at noon.
+
+    This implementation does not include daily variation. This could be implemented
+    by adding a second harmonic oscillation to the primary seadonal oscillation.
+    """
+
+    def __init__(self, maat=-2, amplitude=8, lag=0 * days, period=365.242, grad=0, **kwargs):
+        super().__init__(maat, amplitude, lag, period, **kwargs)  # call parent class initialization
+        self.grad = grad
+
+    def __call__(self, time):
+        """Returns the temperature at the specified time using a harmonic
+        temperature variation.
+        """
+        temp = super().__call__(time)
+        return temp + self.grad * time / (365.242 * days)
 
 
 class SteppedInterpolator(object):
@@ -130,14 +184,19 @@ class SteppedInterpolator(object):
     If timeseries values X_n and X_n+1 are specified for time t_n and t_n+1, 
     X_n will be returned for all times in the range [t_n <= t < t_n+1],
     and X_n+1 will be returned for all times [t_n+1 <= t]
-    
-    times       Time in seconds.
-    values      Timeseries values.
+
+    Initialization arguments:
+    times       Time in seconds (iterable, list or numpy array).
+    values      Timeseries values (iterable, list or numpy array).
+
+    Example of usage:
+    si = soilfreeze1d.SteppedInterpolator(times=[0, 3600, 7200, 10800], values=[0, 1, 2, 3])
+    value = si(5000)    # should give "value = 1"
     """
 
     def __init__(self, times, values):
-        self.times = times
-        self.values = values
+        self.times = np.array(times)
+        self.values = np.array(values)
 
     def __call__(self, time):
         """Returns the value of the current step"""
@@ -171,10 +230,10 @@ class TimeInterpolator(object):
     time_interp.reset()
     """
 
-    def __init__(self, xp, fp, x=0):
+    def __init__(self, xp, fp):
 
-        self.xp = xp  # interpolation x-values (times)
-        self.fp = fp  # interpolation y-values (temperatures)
+        self.xp = np.array(xp)  # interpolation x-values (times)
+        self.fp = np.array(fp)  # interpolation y-values (temperatures)
         self.x = None  # point at which to find interpolation
         self.id = 0  # id into xp for closest value less than x
 
@@ -208,8 +267,8 @@ class DistanceInterpolator(object):
     # the interpolation_depths array.
     temp = z_interp(intepolation_depths)    
     
-    The interpolator will return fp[0] for distances less than depths[0]
-    and fp[-1] for distances larger than depths[-1]
+    The interpolator will return temperatures[0] for distances less than depths[0]
+    and temperatures[-1] for distances larger than depths[-1]
     """
 
     def __init__(self, depths=None, temperatures=None):
@@ -229,7 +288,16 @@ class FileStorage(object):
     multiple of "interval" 
     
     Values will be stored to disk when the buffer has been filled.
-    
+
+    Initialization arguments:
+    filename        Path/name of file to store data
+    interval        Interval (seconds) at which to store data
+    depths          Depths to include when storing (default all)
+    nodes           Node numbers to include when storing (default all)
+    decimals        Decimal places to store (defaults 6)
+    buffer_size     Size of the memory buffer to fill before writing to disk (default 20)
+    append          Whether to append to or overwrite existing file (defautl false=overwrite)
+
     """
 
     def __init__(self, filename, interval=1., depths=None, nodes=None, decimals=6,
@@ -347,10 +415,15 @@ class MemoryStorage(object):
     multiple of "interval" (given in seconds)
     
     Values will be stored to memory only.
-    
+
+    Initialization arguments:
+    interval        Interval (seconds) at which to store data
+    depths          Depths to include when storing (default all)
+    nodes           Node numbers to include when storing (default all)
+    decimals        Decimal places to store (defaults 6)
     """
 
-    def __init__(self, interval=1., depths=None, nodes=None, decimals=6, append=False, buffer_size=None):
+    def __init__(self, interval=1., depths=None, nodes=None, decimals=6, **kwargs):
         # append has no meaning for this storage class
         # buffer_size has no meaning for this storage class
         self.interval = interval
@@ -429,9 +502,12 @@ class MemoryStorage(object):
 class NoStorage(object):
     """Class to handle when no storage is wanted.
     all methods are just 'pass'.
+
+    Drop in replacement for the other storage classes, when no storage is needed,
+    e.g. for testing purposes.
     """
 
-    def __init__(self, interval=1., depths=None, nodes=None, decimals=6, append=False):
+    def __init__(self, **kwargs):
         pass
 
     def initialize(self):
@@ -451,6 +527,14 @@ class NoStorage(object):
 
 
 class LayeredModel(object):
+    """Implements a standard layered model ground, with simple static thermal parameters.
+    This model type implements no change in properties with temperature
+
+    Thickness    is the layer thicknes
+    C            is the volumetric heat capacity of the soil [J/m3/K]
+    k            is the thermal conductiovity of the soil [W/m/K]
+    Soil_type    is a textual descriptor, for user reference only.
+    """
     _descriptor = {'names': ('Thickness', 'C', 'k', 'Soil_type'),
                    'formats': ('f8', 'f8', 'f8', 'S50')}
 
@@ -565,6 +649,33 @@ class LayeredModel_std(LayeredModel):
 
 
 class LayeredModel_unfrw_swi(LayeredModel):
+    """Implements a layered model ground, with freezing characteristics, and three soil constituents:
+    grains, water and ice. The soil is considered fully saturated.
+
+    Effective thermal parameters are calculated as weighted averages of the soil, water and ice properties.
+    Thermal conductivity is calculated as a geometric weighted mean.
+    Heat capacity is calculated as a weighted arithmetic mean.
+
+    The freezing characteristic curve is represented by the power function:
+    Theta_uw = n * alpha * |T - Tf|^(-beta)
+
+    where
+    Theta_uw is the volumetric unfrozen water content [m^3_water/m^3_bulk]
+    T is the temperature
+    Tf is the freezing point of the pore water as free liquid (not in contact with soil grains)
+    alpha and beta are empirical positive valued constants
+    n is the porosity of the soil.
+
+    Layer parameters:
+    Thickness        is the layer thicknes
+    C_s, C_w, C_i    is the volumetric heat capacity of the soil grains, water and ice [J/m3/K]
+    k_s, k_w, k_i    is the thermal conductivity of the soil grains, water and ice [W/m/K]
+    n                is the soil porosity [-]
+    alpha,beta       impirical positively valued constants for the freezing characteristics
+    Tf               freezing point of the pore water [degC]
+    Soil_type        is a textual descriptor, for user reference only.
+    """
+
     _descriptor = {
         'names': ('Thickness', 'n', 'C_s', 'C_w', 'C_i', 'k_s', 'k_w', 'k_i', 'alpha', 'beta', 'Tf', 'Soil_type'),
         'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'S50')}
@@ -642,6 +753,33 @@ class LayeredModel_unfrw_swi(LayeredModel):
 
 
 class LayeredModel_unfrw_swia(LayeredModel):
+    """Implements a layered model ground, with freezing characteristics, and four soil constituents:
+    grains, water, ice and air. The soil water saturation (in thawed state) can be specified (default=1).
+
+    Effective thermal parameters are calculated as weighted averages of the soil, water and ice properties.
+    Thermal conductivity is calculated as a geometric weighted mean.
+    Heat capacity is calculated as a weighted arithmetic mean.
+
+    The freezing characteristic curve is represented by the power function:
+    Theta_uw = n * alpha * |T - Tf|^(-beta)
+
+    where
+    Theta_uw is the volumetric unfrozen water content [m^3_water/m^3_bulk]
+    T is the temperature
+    Tf is the freezing point of the pore water as free liquid (not in contact with soil grains)
+    alpha and beta are empirical positive valued constants
+    n is the porosity of the soil.
+
+    Layer parameters:
+    Thickness             is the layer thicknes
+    C_s, C_w, C_i, C_a    is the volumetric heat capacity of the soil grains, water, ice and air [J/m3/K]
+    k_s, k_w, k_i, k_a    is the thermal conductivity of the soil grains, water, ice and air [W/m/K]
+    n                     is the soil porosity [-]
+    S_w                   is the water saturation in the thawed state (fraction of pore space filled with water)
+    alpha,beta            impirical positively valued constants for the freezing characteristics
+    Tf                    freezing point of the pore water [degC]
+    Soil_type             is a textual descriptor, for user reference only.
+    """
     _descriptor = {'names': ('Thickness', 'n', 'S_w', 'C_s', 'C_w', 'C_i', 'C_a', 'k_s', 'k_w', 'k_i', 'k_a',
                              'alpha', 'beta', 'Tf', 'Soil_type'),
                    'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8',
@@ -720,6 +858,34 @@ class LayeredModel_unfrw_swia(LayeredModel):
 
 
 class LayeredModel_unfrw_thfr(LayeredModel):
+    """Implements a layered model ground, with freezing characteristics, and with thermal parameters specified
+    for the fully frozen and fully thawed state. The soil is considered fully saturated.
+
+    Effective thermal parameters are calculated as weighted averages of the thawed and frozen properties,
+    based on the amount of unfrozen water content.
+    Thermal conductivity is calculated as a geometric weighted mean.
+    Heat capacity is calculated as a weighted arithmetic mean.
+
+    The freezing characteristic curve is represented by the power function:
+    Theta_uw = n * alpha * |T - Tf|^(-beta)
+
+    where
+    Theta_uw is the volumetric unfrozen water content [m^3_water/m^3_bulk]
+    T is the temperature
+    Tf is the freezing point of the pore water as free liquid (not in contact with soil grains)
+    alpha and beta are empirical positive valued constants
+    n is the porosity of the soil.
+
+    Layer parameters:
+    Thickness        is the layer thicknes
+    C_th, C_fr       is the volumetric heat capacity in the thawed and frozen states [J/m3/K]
+    k_th, k_fr       is the thermal conductivity in the thawed and frozen states [W/m/K]
+    n                is the soil porosity [-]
+    alpha,beta       impirical positively valued constants for the freezing characteristics
+    Tf               freezing point of the pore water [degC]
+    Soil_type        is a textual descriptor, for user reference only.
+    """
+
     _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'alpha', 'beta', 'Tf', 'Soil_type'),
                    'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'S50')}
 
@@ -743,7 +909,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         # Create axes for the layered model display
         ax1 = plt.subplot2grid((nlayers, 2), (0, 0), rowspan=nlayers)
 
-        # Prepare to plot unfrozen water        
+        # Prepare to plot unfrozen water
         axes = []
         T = np.linspace(T1, T2, 300)
 
@@ -796,6 +962,28 @@ class LayeredModel_unfrw_thfr(LayeredModel):
 
 
 class LayeredModel_stefan(LayeredModel):
+    """Implements a layered model ground, with stefan solution freezing characteristics,
+    and with thermal parameters specified for the fully frozen and fully thawed state.
+    The soil is considered fully saturated.
+
+    Effective thermal parameters are calculated as weighted averages of the thawed and frozen properties,
+    based on the amount of unfrozen water content.
+    Thermal conductivity is calculated as a geometric weighted mean.
+    Heat capacity is calculated as a weighted arithmetic mean.
+
+    The freezing characteristic is represented by an interval of freezing, over which the fraction
+    of unfrozen pore water changes linearly from 1 to 0 (fully thawed to fully frozen).
+
+    Layer parameters:
+    Thickness        is the layer thicknes
+    C_th, C_fr       is the volumetric heat capacity in the thawed and frozen states [J/m3/K]
+    k_th, k_fr       is the thermal conductivity in the thawed and frozen states [W/m/K]
+    n                is the soil porosity [-]
+    alpha,beta       impirical positively valued constants for the freezing characteristics
+    Tf               freezing point of the pore water [degC]
+    interval         The size of the phase change interval [degC]
+    Soil_type        is a textual descriptor, for user reference only.
+    """
     _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'),
                    'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'S50')}
 
@@ -870,6 +1058,7 @@ class LayeredModel_stefan(LayeredModel):
 
 
 class ConvergenceCriteria(object):
+    """Base clase for convergence testing."""
     unit = ''
 
     def __init__(self, threshold=0.05, max_iter=5):
@@ -1070,10 +1259,13 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                  show_solver_time=True,
                  L=None,
                  ):
-    """Uniform grid solver using the theta based finite difference 
-    approximation. Vectorized implementation and sparse (tridiagonal)
-    coefficient matrix.
-    
+    """Uniform grid solver for the 1D heat equation, based on finite differences.
+    The code uses a constant grid node spacing, and implements the theta-method for a
+    combination of explicit and implicit solutions to improve stability.
+
+    The code is a vectorized implementation and uses a sparse (tridiagonal) coefficient matrix.
+
+    Input arguments (many are optional):
     Layers       LayeredModel (or subclass) instance defining layer parameters
     Nx           Number of equidistant grid points in domain
     dt           The maximum permissible time step [s]
@@ -1081,27 +1273,37 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     t_0          The starting time of the model [s]
     dt_min       The minumum permissible time step [s]
     theta        Parameter determining the type of finite difference solution.
-                     theta = 0:   Forward Euler solution
-                     theta = 0.5: Crank-Nicholson solution
-                     theta = 1:   Backward Euler solution
+                     theta = 0:   Forward Euler solution (explicit)
+                     theta = 0.5: Crank-Nicholson solution (explicit-implicit)
+                     theta = 1:   Backward Euler solution (implicit)
     Tinit        Function defining initial temperatures at all node points 
-                     (takes depth as input argument)
-    ub           Function returning the upper boundary temperature for any point in time. 
-                     (takes time [s] as input argument)
-    lb           Function returning the lower boundary value for any point in time. 
-                     (takes time [s] as input argument)
+                     (must take depth as input argument)
+    ub           Function returning the upper boundary temperature (or flux) for any point in time.
+                     (must take time [s] as input argument)
+    ub_type      Flag to set the type of upper boundary values:
+                     ub_type=1   Dirichlet type upper boundary condition (specified temperature)
+                     ub_type=2   Neumann type upper boundary condition (specified gradient)
+                     ub_type=3   Neumann type upper boundary condition (specified gradient), second order accurate
+                     ub_type=4   Neumann type upper boundary condition (specified flux), second order accurate
+                                    (if type 4 is chosen, specify the time variation of the flux with the ub function)
+    lb           Function returning the lower boundary value for any point in time.
+                     (must take [s] as input argument)
     lb_type      Flag to set the type of lower boundary values:
                      lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-                     lb_type=2   Neumann type lower boundary condition (specified gradient)    
-    grad         The gradient [K/m] to use for the lower boundary (presently not a function)
+                     lb_type=2   Neumann type lower boundary condition (specified gradient)
+                     lb_type=3   Neumann type lower boundary condition (specified gradient), second order accurate
+    grad         The gradient [K/m] to use for the lower boundary (presently a static value, no time variation possible)
+    grad_ub      The gradient [K/m] to use for the upper boundary (presently a static value, no time variation possible)
     user_action  Function to be called at every iteration, can handle any user plotting etc.
     conv_crit    ConvergenceCriteria (or subclass) instance defining the convergence
-                     criteria for iterative search for unfrozen water content.
+                     criteria for iterative search for unfrozen water content (don't change! for testing purposes).
     outfile      Filename of the output data file
-    outint       Frequency of data output [s]
-    outnodes     List of indices of nodes to output in results file
+    storage      instance of class FileStorage, MemoryStorage or NoStorage, defaults to FileStorage
+    outint       Frequency of data output to storage [s]
+    outnodes     List of indices of nodes to output in results file (all, if not specified)
     silent       Flag to determine if status messages are written to stdout.
     show_solver_time    If silent, solver time may still be printed to indicate progress.
+    L            Latent heat of freezing (defaults to 334*1e6 J/m^3)
     """
 
     tstart = time.monotonic()
@@ -1577,46 +1779,74 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
     """Full solver for the model problem using the theta based finite difference
     approximation. Non Uniform Grid implemented using approximating Lagrange polynomials.
     Vectorized implementation and sparse (n-diagonal) coefficient matrix.
-    
-    ub_type=1   Dirichlet type upper boundary condition (specified temperature)
-    ub_type=2   Neumann type upper boundary condition (specified gradient),
-                    implemented as linear gradient between two first nodes.
-    ub_type=3   Neumann type upper boundary condition (specified gradient),
-                    implemented using the legendre polynomial gradient.
-    ub_type=4   Neumann type upper boundary condition (time varying flux),
-                    implemented using the legendre polynomial gradient,
-                    dividing the current time step flux (retrieved from ub)
-                    by the effective thermal conductivity at the current step
-                    to calculate the gradient.
-    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-    lb_type=2   Neumann type lower boundary condition (specified gradient),
-                    implemented as linear gradient between two first nodes.
-    lb_type=3   Neumann type lower boundary condition (specified gradient),
-                    implemented using the legendre polynomial gradient.
-    grad        The gradient [K/m] to use for the lower boundary
-    grad_ub     The gradient [K/m] to use for the upper boundary
-    ub          Timeseries of upper boundary condition
-    lb          Timeseries of upper boundary condition
-    outnodes    List of indices of nodes to output in results file
-    L           Latent heat of fusion (optional)
-    
-    storage     Instance of a storage class (FileStorage or MemoryStorage)
+    Implements the theta-method for a combination of explicit and implicit solutions
+    to improve stability.
+
+    Input arguments (many are optional):
+    Layers       LayeredModel (or subclass) instance defining layer parameters
+    x            Location of grid points in the domain [m]
+    dt           The maximum permissible time step [s]
+    t_end        The end time of the model [s]
+    t_0          The starting time of the model [s]
+    dt_min       The minumum permissible time step [s]
+    theta        Parameter determining the type of finite difference solution.
+                     theta = 0:   Forward Euler solution (explicit)
+                     theta = 0.5: Crank-Nicholson solution (explicit-implicit)
+                     theta = 1:   Backward Euler solution (implicit)
+    sigma        is the solution constant indicating the type of symmetry:
+                     sigma = 0:   cartesian 1D symmetry  (variation in x, no variation in y or z)
+                     sigma = 1:   axial symmetry in cylindrical coordinates
+                     sigma = 2:   spherical symmetry (domain consists of concentric spherical shells)
+    Tinit        Function defining initial temperatures at all node points
+                     (must take depth as input argument)
+    ub           Function returning the upper boundary temperature (or flux) for any point in time.
+                     (must take time [s] as input argument)
+    ub_type      Flag to set the type of upper boundary values:
+                     ub_type=1   Dirichlet type upper boundary condition (specified temperature)
+                     ub_type=2   Neumann type upper boundary condition (specified gradient),
+                                     implemented as linear gradient between two first nodes.
+                     ub_type=3   Neumann type upper boundary condition (specified gradient),
+                                     implemented using the legendre polynomial gradient.
+                     ub_type=4   Neumann type upper boundary condition (time varying flux),
+                                     implemented using the legendre polynomial gradient,
+                                     dividing the current time step flux (retrieved from ub)
+                                     by the effective thermal conductivity at the current step
+                                     to calculate the gradient.
+    lb          Function returning the lower boundary value for any point in time.
+                     (must take [s] as input argument)
+    lb_type      Flag to set the type of lower boundary values:
+                     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+                     lb_type=2   Neumann type lower boundary condition (specified gradient),
+                                     implemented as linear gradient between two first nodes.
+                     lb_type=3   Neumann type lower boundary condition (specified gradient),
+                                     implemented using the legendre polynomial gradient.
+    grad         The gradient [K/m] to use for the lower boundary (presently a static value, no time variation possible)
+    grad_ub      The gradient [K/m] to use for the upper boundary (presently a static value, no time variation possible)
+    user_action  Function to be called at every iteration, can handle any user plotting etc.
+    conv_crit    ConvergenceCriteria (or subclass) instance defining the convergence
+                     criteria for iterative search for unfrozen water content (don't change! for testing purposes).
+    outfile      Filename of the output data file
+    storage      instance of class FileStorage, MemoryStorage or NoStorage, defaults to FileStorage
                    If None, no data will be stored, only final result returned.
                    If storage is None, and outfile is specified (default)
                        a FileStorage class is instantiated.
-                   If storage is FileStorage or MemoryStorage, 
+                   If storage is FileStorage or MemoryStorage instance,
                        outfile is neglected.
-                   
+    outint       Frequency of data output to storage [s]
+    outnodes     List of indices of nodes to output in results file (all, if not specified)
+    silent       Flag to determine if status messages are written to stdout.
+    show_solver_time    If silent, solver time may still be printed to indicate progress.
+    L            Latent heat of freezing (defaults to 334*1e6 J/m^3)
     """
 
     def calc_Dp(x):
         """Calculates the square diagonal matrix Dpp used to approximate the first derivative
         of a function with known values at the points given by the vector x. 
         The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
-        
+
         Arguments:
         x:  array of node depths
-        
+
         Returns:
         Dp: sparse matrix of Lagrange basis polynomial coefficients
         """
@@ -1635,7 +1865,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         # Coefficients of the inner rows (1 to N-1)
         # The following indicing corresponds to:
         # h[1:]   =  h_{k+1}
-        # h[:n-2] =  h_k 
+        # h[:n-2] =  h_k
         ak = -h[1:] / (h[:N - 2] * (h[:N - 2] + h[1:]))
         bk = (h[1:] - h[:N - 2]) / (h[:N - 2] * h[1:])
         ck = h[:N - 2] / (h[1:] * (h[:N - 2] + h[1:]))
@@ -2520,7 +2750,7 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
         ax = kwargs.pop('ax')
     else:
         fh = plt.figure(figsize=figsize, facecolor=figBG)
-        ax = plt.axes(rect1, axisbg=axesBG)
+        ax = plt.axes(rect1)#, axisbg=axesBG)
 
     if fh is None:
         fh = ax.get_figure()
@@ -2551,7 +2781,7 @@ def plot_surf(fname=None, data=None, time=None, depths=None, annotations=True,
 
     if cont_levels is not None:
         ct = ax.contour(xx, yy, data.T, cont_levels, colors='k')
-        cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C', fontsize=12, colors='k')
+        #cl = ax.clabel(ct, cont_levels, inline=True, fmt='%1.1f $^\circ$C', fontsize=12, colors='k')
 
     if node_depths:
         xlim = ax.get_xlim()
