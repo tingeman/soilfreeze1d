@@ -3,8 +3,7 @@
 
 """
 Functions for solving the 1d heat equation:
-      (k*u_x)_x = C*u_t + L*dtheta/dt
-
+      (k*u_x)_x = C*u_t + L*dtheta/dt 
 with boundary conditions u(t,0)=ub(t) and u(t,L)=lb(t) 
 or du(t,L)/dx=grad, for t in [t0,T+t0].
 
@@ -62,7 +61,7 @@ class ConstantTemperature(object):
     passed dureing initialization.
     
     T = constant temperature
-
+    
     Initialization arguments:
     time       Time in seconds.
     """
@@ -85,7 +84,7 @@ class HarmonicTemperature(object):
     according to the following formula:
     
     T = maat - amplitude * cos(2*pi*(time-lag)/(period*days))
-
+    
     Initialization arguments:
     time       Time in seconds.
     maat       Mean Annual Airt Temperature.
@@ -165,7 +164,7 @@ class SteppedInterpolator(object):
     If timeseries values X_n and X_n+1 are specified for time t_n and t_n+1, 
     X_n will be returned for all times in the range [t_n <= t < t_n+1],
     and X_n+1 will be returned for all times [t_n+1 <= t]
-
+    
     Initialization arguments:
     times       Time in seconds (iterable, list or numpy array).
     values      Timeseries values (iterable, list or numpy array).
@@ -269,7 +268,7 @@ class FileStorage(object):
     multiple of "interval" 
     
     Values will be stored to disk when the buffer has been filled.
-
+    
     Initialization arguments:
     filename        Path/name of file to store data
     interval        Interval (seconds) at which to store data
@@ -396,7 +395,7 @@ class MemoryStorage(object):
     multiple of "interval" (given in seconds)
     
     Values will be stored to memory only.
-
+    
     Initialization arguments:
     interval        Interval (seconds) at which to store data
     depths          Depths to include when storing (default all)
@@ -712,7 +711,14 @@ class LayeredModel_unfrw_swi(LayeredModel):
 
     def f_Tstar(self, Tf, S_w, a, b):
         """Calculation of the effective freezing point, T_star."""
-        return Tf - np.power((S_w / a), (-1 / b))
+        with np.errstate(divide='ignore'): 
+            # Ignore division by zero in the following code
+            T_star = Tf - np.power((S_w / a), (-1 / b))
+        # if S_w is zero, a warning will be raised by the power function
+        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
+        # instead of instantiating a new array of zeros to choose from, we just take the
+        # zero from S_w, to save time...
+        return np.where(S_w == 0., S_w, T_star)
 
     def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
         """Calculates the unfrozen water fraction."""
@@ -817,7 +823,14 @@ class LayeredModel_unfrw_swia(LayeredModel):
 
     def f_Tstar(self, Tf, S_w, a, b):
         """Calculation of the effective freezing point, T_star."""
-        return Tf - np.power((S_w / a), (-1 / b))
+        with np.errstate(divide='ignore'): 
+            # Ignore division by zero in the following code
+            T_star = Tf - np.power((S_w / a), (-1 / b))
+        # if S_w is zero, a warning will be raised by the power function
+        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
+        # instead of instantiating a new array of zeros to choose from, we just take the
+        # zero from S_w, to save time...
+        return np.where(S_w == 0., S_w, T_star)
 
     def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
         """Calculates the unfrozen water fraction."""
@@ -890,7 +903,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         # Create axes for the layered model display
         ax1 = plt.subplot2grid((nlayers, 2), (0, 0), rowspan=nlayers)
 
-        # Prepare to plot unfrozen water
+        # Prepare to plot unfrozen water        
         axes = []
         T = np.linspace(T1, T2, 300)
 
@@ -921,8 +934,15 @@ class LayeredModel_unfrw_thfr(LayeredModel):
 
     def f_Tstar(self, Tf, S_w, a, b):
         """Calculation of the effective freezing point, T_star."""
-        return Tf - np.power((S_w / a), (-1 / b))
-
+        with np.errstate(divide='ignore'): 
+            # Ignore division by zero in the following code
+            T_star = Tf - np.power((S_w / a), (-1 / b))
+        # if S_w is zero, a warning will be raised by the power function
+        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
+        # instead of instantiating a new array of zeros to choose from, we just take the
+        # zero from S_w, to save time...
+        return np.where(S_w == 0., S_w, T_star)
+        
     def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
         """Calculates the unfrozen water fraction."""
         return np.where(T < Tstar,
@@ -1245,7 +1265,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     combination of explicit and implicit solutions to improve stability.
 
     The code is a vectorized implementation and uses a sparse (tridiagonal) coefficient matrix.
-
+    
     Input arguments (many are optional):
     Layers       LayeredModel (or subclass) instance defining layer parameters
     Nx           Number of equidistant grid points in domain
@@ -1267,11 +1287,11 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                      ub_type=3   Neumann type upper boundary condition (specified gradient), second order accurate
                      ub_type=4   Neumann type upper boundary condition (specified flux), second order accurate
                                     (if type 4 is chosen, specify the time variation of the flux with the ub function)
-    lb           Function returning the lower boundary value for any point in time.
+    lb           Function returning the lower boundary value for any point in time. 
                      (must take [s] as input argument)
     lb_type      Flag to set the type of lower boundary values:
                      lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-                     lb_type=2   Neumann type lower boundary condition (specified gradient)
+                     lb_type=2   Neumann type lower boundary condition (specified gradient)    
                      lb_type=3   Neumann type lower boundary condition (specified gradient), second order accurate
     grad         The gradient [K/m] to use for the lower boundary (presently a static value, no time variation possible)
     grad_ub      The gradient [K/m] to use for the upper boundary (presently a static value, no time variation possible)
@@ -1762,7 +1782,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
     Vectorized implementation and sparse (n-diagonal) coefficient matrix.
     Implements the theta-method for a combination of explicit and implicit solutions
     to improve stability.
-
+    
     Input arguments (many are optional):
     Layers       LayeredModel (or subclass) instance defining layer parameters
     x            Location of grid points in the domain [m]
@@ -1783,24 +1803,24 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
     ub           Function returning the upper boundary temperature (or flux) for any point in time.
                      (must take time [s] as input argument)
     ub_type      Flag to set the type of upper boundary values:
-                     ub_type=1   Dirichlet type upper boundary condition (specified temperature)
-                     ub_type=2   Neumann type upper boundary condition (specified gradient),
-                                     implemented as linear gradient between two first nodes.
-                     ub_type=3   Neumann type upper boundary condition (specified gradient),
-                                     implemented using the legendre polynomial gradient.
-                     ub_type=4   Neumann type upper boundary condition (time varying flux),
-                                     implemented using the legendre polynomial gradient,
-                                     dividing the current time step flux (retrieved from ub)
-                                     by the effective thermal conductivity at the current step
-                                     to calculate the gradient.
+    ub_type=1   Dirichlet type upper boundary condition (specified temperature)
+    ub_type=2   Neumann type upper boundary condition (specified gradient),
+                    implemented as linear gradient between two first nodes.
+    ub_type=3   Neumann type upper boundary condition (specified gradient),
+                    implemented using the legendre polynomial gradient.
+    ub_type=4   Neumann type upper boundary condition (time varying flux),
+                    implemented using the legendre polynomial gradient,
+                    dividing the current time step flux (retrieved from ub)
+                    by the effective thermal conductivity at the current step
+                    to calculate the gradient.
     lb          Function returning the lower boundary value for any point in time.
                      (must take [s] as input argument)
     lb_type      Flag to set the type of lower boundary values:
-                     lb_type=1   Dirichlet type lower boundary condition (specified temperature)
-                     lb_type=2   Neumann type lower boundary condition (specified gradient),
-                                     implemented as linear gradient between two first nodes.
-                     lb_type=3   Neumann type lower boundary condition (specified gradient),
-                                     implemented using the legendre polynomial gradient.
+    lb_type=1   Dirichlet type lower boundary condition (specified temperature)
+    lb_type=2   Neumann type lower boundary condition (specified gradient),
+                    implemented as linear gradient between two first nodes.
+    lb_type=3   Neumann type lower boundary condition (specified gradient),
+                    implemented using the legendre polynomial gradient.
     grad         The gradient [K/m] to use for the lower boundary (presently a static value, no time variation possible)
     grad_ub      The gradient [K/m] to use for the upper boundary (presently a static value, no time variation possible)
     user_action  Function to be called at every iteration, can handle any user plotting etc.
@@ -1824,10 +1844,10 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         """Calculates the square diagonal matrix Dpp used to approximate the first derivative
         of a function with known values at the points given by the vector x. 
         The matrix contains the coefficients of the Lagrange basis polynomials on the diagonals.
-
+        
         Arguments:
         x:  array of node depths
-
+        
         Returns:
         Dp: sparse matrix of Lagrange basis polynomial coefficients
         """
@@ -1846,7 +1866,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         # Coefficients of the inner rows (1 to N-1)
         # The following indicing corresponds to:
         # h[1:]   =  h_{k+1}
-        # h[:n-2] =  h_k
+        # h[:n-2] =  h_k 
         ak = -h[1:] / (h[:N - 2] * (h[:N - 2] + h[1:]))
         bk = (h[1:] - h[:N - 2]) / (h[:N - 2] * h[1:])
         ck = h[:N - 2] / (h[1:] * (h[:N - 2] + h[1:]))
