@@ -19,6 +19,9 @@ user_action can be used by the calling code can add visualization,
 error computations, data analysis, store solutions, etc.
 """
 
+__version__ = '2022.04.16'
+__author__ = 'Thomas Ingeman-Nielsen'
+
 import pdb
 import copy
 import fractions
