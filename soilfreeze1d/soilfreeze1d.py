@@ -593,17 +593,88 @@ class LayeredModel(object):
     def show(self, T1=-10, T2=2, fig=None):
         raise NotImplementedError('Visualization of standard model not yet implemented')
 
-    def f_unfrw_fraction(self, **kwargs):
-        raise NotImplementedError('Unfrozen water is not implemented for standard model')
-
-    def f_unfrozen_water(self, **kwargs):
-        raise NotImplementedError('Unfrozen water is not implemented for standard model')
-
     def f_k_eff(self, k, **kwargs):
         return k
 
     def f_C_eff(self, C, **kwargs):
         return C
+
+
+class UnfrozenWaterPowerFunction(object):
+    """Implements the freezing characteristic curve (unfrozen water content) represented by
+    the power function:
+    
+    theta_uw = alpha * |T - Tf|^(-beta)  , T <= Tstar
+    theta_uw = 1                         , T > Tstar
+
+    and
+
+    Theta_uw = n * Sw * theta_uw
+
+    where:
+    theta_uw              is the unfrozen porewater fraction (fraction of pore space, m3_water/m3_pore_volume)
+    Theta_uw              is the volumetric unfrozen porewater (m3_water/m3_bulk_soil)
+    n                     is the soil porosity [-]
+    S_w                   is the water saturation in the thawed state (fraction of pore space filled with water)
+    alpha,beta            impirical positively valued constants for the freezing characteristics
+    Tf                    freezing point of the pore water [degC]
+    Tstar                 is the temperature above which all pore water is unfrozen
+    """
+    def f_Tstar(self, Tf, S_w, a, b):
+        """Calculation of the effective freezing point, T_star."""
+        with np.errstate(divide='ignore'): 
+            # Ignore division by zero in the following code
+            T_star = Tf - np.power((S_w / a), (-1 / b))
+        # if S_w is zero, a warning will be raised by the power function
+        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
+        # instead of instantiating a new array of zeros to choose from, we just take the
+        # zero from S_w, to save time...
+        return np.where(S_w == 0., S_w, T_star)
+
+    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
+        """Calculates the unfrozen water fraction."""
+        return np.where(T < Tstar,
+                        a * np.power(np.abs(T - Tf), -b),
+                        np.ones_like(T) * S_w)
+
+    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
+
+
+class UnfrozenWaterStefanSolution(object):
+    """Implements the freezing characteristic curve (unfrozen water content) represented by
+    an interval of freezing, over which the fraction of unfrozen pore water changes linearly from 
+    1 to 0 (fully thawed to fully frozen):
+
+    theta_uw = 1                           , T >= Tf
+    theta_uw = I^-1 * (T - Tf) + 1         , Tf-I <= T <= Tf
+    theta_uw = 0                           , T < Tf-I
+
+    and
+
+    Theta_uw = n * theta_uw
+
+    where:
+    theta_uw              is the unfrozen porewater fraction (fraction of pore space, m3_water/m3_pore_volume)
+    Theta_uw              is the volumetric unfrozen porewater (m3_water/m3_bulk_soil)
+    n                     is the soil porosity [-]
+    S_w                   is the water saturation in the thawed state (fraction of pore space filled with water)
+    I                     is the size of the phase change interval [degC]
+    Tf                    freezing point of the pore water [degC]
+    """
+
+    def f_unfrw_fraction(self, T, Tf, interval):
+        """Calculates the unfrozen water fraction."""
+        # unfrozen water is linear between Tf-interfal and Tf
+        phi = np.ones_like(T) * np.nan
+        phi[np.greater(T, Tf)] = 1.0  # The 1.0 is the water saturation
+        phi[np.less_equal(T, Tf - interval)] = 0.0  # No unfrozen water
+        return np.where(np.isnan(phi), (interval ** -1) * T + 1, phi)
+
+    def f_unfrozen_water(self, T, Tf, interval, n, S_w=1.0):
+        """Calculates the unfrozen water content [m^3/m^3]."""
+        return self.f_phi_unfrw(T, Tf, interval) * n
 
 
 # change unfrw_swi model so that:
@@ -628,7 +699,7 @@ class LayeredModel_std(LayeredModel):
     pass
 
 
-class LayeredModel_unfrw_swi(LayeredModel):
+class LayeredModel_unfrw_swi(LayeredModel, UnfrozenWaterPowerFunction):
     """Implements a layered model ground, with freezing characteristics, and three soil constituents:
     grains, water and ice. The soil is considered fully saturated.
 
@@ -709,27 +780,6 @@ class LayeredModel_unfrw_swi(LayeredModel):
         plt.draw()
         plt.show()
 
-    def f_Tstar(self, Tf, S_w, a, b):
-        """Calculation of the effective freezing point, T_star."""
-        with np.errstate(divide='ignore'): 
-            # Ignore division by zero in the following code
-            T_star = Tf - np.power((S_w / a), (-1 / b))
-        # if S_w is zero, a warning will be raised by the power function
-        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
-        # instead of instantiating a new array of zeros to choose from, we just take the
-        # zero from S_w, to save time...
-        return np.where(S_w == 0., S_w, T_star)
-
-    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
-        """Calculates the unfrozen water fraction."""
-        return np.where(T < Tstar,
-                        a * np.power(np.abs(T - Tf), -b),
-                        np.ones_like(T) * S_w)
-
-    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
-        """Calculates the unfrozen water content [m^3/m^3]."""
-        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
-
     def f_k_eff(self, k_s, k_w, k_i, n, phi):
         """Calculates the effective thermal conductivity []."""
         return k_s ** (1 - n) * k_w ** (n * phi) * k_i ** (n * (1 - phi))
@@ -739,11 +789,11 @@ class LayeredModel_unfrw_swi(LayeredModel):
         return C_s * (1 - n) + C_w * (n * phi) + C_i * (n * (1 - phi))
 
 
-class LayeredModel_unfrw_swia(LayeredModel):
+class LayeredModel_unfrw_swia(LayeredModel, UnfrozenWaterPowerFunction):
     """Implements a layered model ground, with freezing characteristics, and four soil constituents:
     grains, water, ice and air. The soil water saturation (in thawed state) can be specified (default=1).
 
-    Effective thermal parameters are calculated as weighted averages of the soil, water and ice properties.
+    Effective thermal parameters are calculated as weighted averages of the soil, water, ice and air properties.
     Thermal conductivity is calculated as a geometric weighted mean.
     Heat capacity is calculated as a weighted arithmetic mean.
 
@@ -821,27 +871,6 @@ class LayeredModel_unfrw_swia(LayeredModel):
         plt.draw()
         plt.show()
 
-    def f_Tstar(self, Tf, S_w, a, b):
-        """Calculation of the effective freezing point, T_star."""
-        with np.errstate(divide='ignore'): 
-            # Ignore division by zero in the following code
-            T_star = Tf - np.power((S_w / a), (-1 / b))
-        # if S_w is zero, a warning will be raised by the power function
-        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
-        # instead of instantiating a new array of zeros to choose from, we just take the
-        # zero from S_w, to save time...
-        return np.where(S_w == 0., S_w, T_star)
-
-    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
-        """Calculates the unfrozen water fraction."""
-        return np.where(T < Tstar,
-                        a * np.power(np.abs(T - Tf), -b),
-                        np.ones_like(T) * S_w)
-
-    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w):
-        """Calculates the unfrozen water content [m^3/m^3]."""
-        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
-
     def f_k_eff(self, k_s, k_w, k_i, k_a, n, phi, S_w):
         """Calculates the effective thermal conductivity []."""
         return k_s ** (1 - n) * k_w ** (n * S_w * phi) * k_i ** (n * S_w * (1 - phi)) * k_a ** (n * (1 - S_w))
@@ -851,7 +880,7 @@ class LayeredModel_unfrw_swia(LayeredModel):
         return C_s * (1 - n) + C_w * (n * S_w * phi) + C_i * (n * S_w * (1 - phi)) + C_a * (n * (1 - S_w))
 
 
-class LayeredModel_unfrw_thfr(LayeredModel):
+class LayeredModel_unfrw_thfr(LayeredModel, UnfrozenWaterPowerFunction):
     """Implements a layered model ground, with freezing characteristics, and with thermal parameters specified
     for the fully frozen and fully thawed state. The soil is considered fully saturated.
 
@@ -932,27 +961,6 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         plt.draw()
         plt.show()
 
-    def f_Tstar(self, Tf, S_w, a, b):
-        """Calculation of the effective freezing point, T_star."""
-        with np.errstate(divide='ignore'): 
-            # Ignore division by zero in the following code
-            T_star = Tf - np.power((S_w / a), (-1 / b))
-        # if S_w is zero, a warning will be raised by the power function
-        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
-        # instead of instantiating a new array of zeros to choose from, we just take the
-        # zero from S_w, to save time...
-        return np.where(S_w == 0., S_w, T_star)
-        
-    def f_unfrw_fraction(self, T, a, b, Tf, Tstar, S_w):
-        """Calculates the unfrozen water fraction."""
-        return np.where(T < Tstar,
-                        a * np.power(np.abs(T - Tf), -b),
-                        np.ones_like(T) * S_w)
-
-    def f_unfrozen_water(self, T, a, b, Tf, Tstar, n, S_w=1.0):
-        """Calculates the unfrozen water content [m^3/m^3]."""
-        return self.f_unfrw_fraction(T, a, b, Tf, Tstar, S_w) * n
-
     def f_k_eff(self, k_f, k_t, phi):
         """Calculates the effective thermal conductivity []."""
         return k_f ** (1 - phi) * k_t ** (phi)
@@ -962,7 +970,7 @@ class LayeredModel_unfrw_thfr(LayeredModel):
         return C_f * (1 - phi) + C_t * (phi)
 
 
-class LayeredModel_stefan(LayeredModel):
+class LayeredModel_stefan_thfr(LayeredModel, UnfrozenWaterStefanSolution):
     """Implements a layered model ground, with stefan solution freezing characteristics,
     and with thermal parameters specified for the fully frozen and fully thawed state.
     The soil is considered fully saturated.
@@ -988,11 +996,9 @@ class LayeredModel_stefan(LayeredModel):
     _descriptor = {'names': ('Thickness', 'n', 'C_th', 'C_fr', 'k_th', 'k_fr', 'Tf', 'interval', 'Soil_type'),
                    'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'S50')}
 
-    def __init__(self, interval=1, Tf=0., **kwargs):
-        kwargs['type'] = 'stefan'
-        super(LayeredModel_stefan, self).__init__(**kwargs)
-        self.interval = interval
-        self.Tf = Tf
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'stefan_thfr'
+        super(LayeredModel_stefan_thfr, self).__init__(**kwargs)
 
     def show(self, T1=-10, T2=2, fig=None):
         # allow a maximum of five layers for plotting
@@ -1037,18 +1043,6 @@ class LayeredModel_stefan(LayeredModel):
         plt.draw()
         plt.show()
 
-    def f_unfrw_fraction(self, T, Tf, interval):
-        """Calculates the unfrozen water fraction."""
-        # unfrozen water is linear between Tf-interfal and Tf
-        phi = np.ones_like(T) * np.nan
-        phi[np.greater(T, Tf)] = 1.0  # The 1.0 is the water saturation
-        phi[np.less_equal(T, Tf - interval)] = 0.0  # No unfrozen water
-        return np.where(np.isnan(phi), (interval ** -1) * T + 1, phi)
-
-    def f_unfrozen_water(self, T, Tf, interval, n, S_w=1.0):
-        """Calculates the unfrozen water content [m^3/m^3]."""
-        return self.f_phi_unfrw(T, Tf, interval) * n
-
     def f_k_eff(self, k_f, k_t, phi):
         """Calculates the effective thermal conductivity []."""
         return k_f ** (1 - phi) * k_t ** (phi)
@@ -1056,6 +1050,89 @@ class LayeredModel_stefan(LayeredModel):
     def f_C_eff(self, C_f, C_t, phi):
         """Calculates the effective heat capacity []."""
         return C_f * (1 - phi) + C_t * (phi)
+
+
+class LayeredModel_stefan_swia(LayeredModel, UnfrozenWaterStefanSolution):
+    """Implements a layered model ground, with freezing characteristics, and four soil constituents:
+    grains, water, ice and air. The soil water saturation (in thawed state) can be specified (default=1).
+
+    Effective thermal parameters are calculated as weighted averages of the soil, water, ice and air properties.
+    Thermal conductivity is calculated as a geometric weighted mean.
+    Heat capacity is calculated as a weighted arithmetic mean.
+
+    The freezing characteristic is represented by an interval of freezing, over which the fraction
+    of unfrozen pore water changes linearly from 1 to 0 (fully thawed to fully frozen).)
+
+    Layer parameters:
+    Thickness             is the layer thicknes
+    C_s, C_w, C_i, C_a    is the volumetric heat capacity of the soil grains, water, ice and air [J/m3/K]
+    k_s, k_w, k_i, k_a    is the thermal conductivity of the soil grains, water, ice and air [W/m/K]
+    n                     is the soil porosity [-]
+    S_w                   is the water saturation in the thawed state (fraction of pore space filled with water)
+    interval              is the size of the phase change interval [degC]
+    Tf                    freezing point of the pore water [degC]
+    Soil_type             is a textual descriptor, for user reference only.
+    """
+    _descriptor = {'names': ('Thickness', 'n', 'S_w', 'C_s', 'C_w', 'C_i', 'C_a', 'k_s', 'k_w', 'k_i', 'k_a',
+                             'interval', 'Tf', 'Soil_type'),
+                   'formats': ('f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8', 'f8',
+                               'f8', 'f8', 'S50')}
+
+    def __init__(self, **kwargs):
+        kwargs['type'] = 'stefan_swia'
+        super(LayeredModel_unfrw_swia, self).__init__(**kwargs)
+
+    def show(self, T1=-10, T2=2, fig=None):
+        # allow a maximum of five layers for plotting
+        nlayers = len(self)
+        if nlayers > 5:
+            raise NotImplementedError('Visualization of more than 5 layers is not yet implemented')
+
+        # Select figure window to plot
+        if fig is None:
+            fig = plt.figure()  # use new window in no window specified
+        else:
+            fig = plt.figure(fig)
+
+        # Create axes for the layered model display
+        ax1 = plt.subplot2grid((nlayers, 2), (0, 0), rowspan=nlayers)
+
+        # Prepare to plot unfrozen water        
+        axes = []
+        T = np.linspace(T1, T2, 300)
+
+        # make list of all depths, including surface
+        ldepths = [self.surface_z]
+        ldepths.extend(self.surface_z + np.cumsum(self._layers['Thickness']))
+
+        # loop over all layers
+        for n in range(nlayers):
+            # plot top of layer as line in ax1
+            ax1.axhline(y=ldepths[n], ls='-', color='k')
+            ax1.set_ylim([ldepths[0], ldepths[-1]])
+            ax1.invert_yaxis()
+
+            # Create axis for unfrozen water plot
+            axes.append(plt.subplot2grid((nlayers, 2), (n, 1)))
+
+            # unfrw = n*a*|T-Tf|**-b
+            Tstar = self.f_Tstar(self[n]['Tf'], self[n]['S_w'], self[n]['alpha'], self[n]['beta'])
+            unfrw = self.f_unfrozen_water(T, self[n]['alpha'], self[n]['beta'],
+                                          self[n]['Tf'], Tstar, self[n]['n'], self[n]['S_w'])
+
+            axes[-1].plot(T, unfrw, '-k')
+            axes[-1].set_ylim([0, np.round(np.max(unfrw) * 1.1, 2)])
+
+        plt.draw()
+        plt.show()
+
+    def f_k_eff(self, k_s, k_w, k_i, k_a, n, phi, S_w):
+        """Calculates the effective thermal conductivity []."""
+        return k_s ** (1 - n) * k_w ** (n * S_w * phi) * k_i ** (n * S_w * (1 - phi)) * k_a ** (n * (1 - S_w))
+
+    def f_C_eff(self, C_s, C_w, C_i, C_a, n, phi, S_w):
+        """Calculates the effective heat capacity []."""
+        return C_s * (1 - n) + C_w * (n * S_w * phi) + C_i * (n * S_w * (1 - phi)) + C_a * (n * (1 - S_w))
 
 
 class ConvergenceCriteria(object):
@@ -1322,7 +1399,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
     iter_stats = {}
 
     if conv_crit is None:
-        if Layers.parameter_set in ['std', 'stefan']:
+        if Layers.parameter_set in ['std', 'stefan_thfr', 'stefan_swia']:
             conv_crit = ConvCritNoIter()
         else:
             conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
@@ -1398,13 +1475,30 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
 
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
-    elif Layers.parameter_set == 'stefan':
-        if not silent: print("Using stefan solution parameters")
+    elif Layers.parameter_set == 'stefan_thfr':
+        if not silent: print("Using stefan solution parameters (thfr)")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
         n = Layers.pick_values(x, 'n')
+
+        # interval = Layers.interval
+        # Tf = Layers.Tf
+        interval = Layers.pick_values(x, 'interval')
+        Tf = Layers.pick_values(x, 'Tf')
+    elif Layers.parameter_set == 'stefan_swia':
+        if not silent: print("Using stefan solution parameters (swia)")
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        k_a = Layers.pick_values(x, 'k_a')
+        C_a = Layers.pick_values(x, 'C_a')
+        n = Layers.pick_values(x, 'n')
+        S_w = Layers.pick_values(x, 'S_w')
 
         # interval = Layers.interval
         # Tf = Layers.Tf
@@ -1495,11 +1589,18 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
                 unfrw_u1 = n * phi
 
-            elif Layers.parameter_set == 'stefan':
+            elif Layers.parameter_set == 'stefan_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
+                unfrw_u1 = n * phi
+            
+            elif Layers.parameter_set == 'stefan_swia':
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
+
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, k_a, n, phi, S_w)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
                 unfrw_u1 = n * phi
 
         F = solver_time.dt / (2 * dx ** 2)
@@ -1509,7 +1610,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         conv_crit.reset_iterator()
         for it in conv_crit.iterator():
 
-            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+            if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi', 'unfrw_swia']:
                 if conv_crit.iteration == 0:
                     # This is first iteration, approximate the latent heat 
                     # component by the analytical derivative
@@ -1538,7 +1639,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
 
-            elif Layers.parameter_set == 'stefan':
+            elif Layers.parameter_set in ['stefan_thfr', 'stefan_swia']:
                 C_app = np.where(np.logical_and(np.less(u, Tf), np.
                                                 greater_equal(u, Tf - interval)),
                                  C_eff + L * n / interval, C_eff)
@@ -1644,7 +1745,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                 unfrw_u = 0.
                 convergence = conv_crit.has_converged(u_bak, u, None, None, solver_time.dt_fraction)
             else:
-                if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi']:
+                if Layers.parameter_set in ['unfrw_thfr', 'unfrw_swi', 'unfrw_swia']:
                     phi_u = Layers.f_unfrw_fraction(u, alpha, beta, Tf, Tstar, S_w)
                     unfrw_u = n * phi_u
 
@@ -1654,7 +1755,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
                         if not silent:
                             conv_crit.show()
 
-                elif Layers.parameter_set == 'stefan':
+                elif Layers.parameter_set in ['stefan_thfr', 'stefan_swia']:
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n * phi_u
 
@@ -1947,7 +2048,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
     iter_stats = {}
 
     if conv_crit is None:
-        if Layers.parameter_set in ['std', 'stefan']:
+        if Layers.parameter_set in ['std', 'stefan_thfr', 'stefan_swia']:
             conv_crit = ConvCritNoIter()
         else:
             conv_crit = ConvCritUnfrw4(threshold=1e-3, max_iter=5)
@@ -2030,13 +2131,30 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
 
         Tf = Layers.pick_values(x, 'Tf')
         Tstar = Layers.f_Tstar(Tf, S_w, alpha, beta)
-    elif Layers.parameter_set == 'stefan':
+    elif Layers.parameter_set == 'stefan_thfr':
         if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
         C_th = Layers.pick_values(x, 'C_th')
         k_fr = Layers.pick_values(x, 'k_fr')
         C_fr = Layers.pick_values(x, 'C_fr')
         n = Layers.pick_values(x, 'n')
+
+        # interval = Layers.interval
+        # Tf = Layers.Tf
+        interval = Layers.pick_values(x, 'interval')
+        Tf = Layers.pick_values(x, 'Tf')
+    elif Layers.parameter_set == 'stefan_swia':
+        if not silent: print("Using stefan solution parameters (swia)")
+        k_s = Layers.pick_values(x, 'k_s')
+        C_s = Layers.pick_values(x, 'C_s')
+        k_w = Layers.pick_values(x, 'k_w')
+        C_w = Layers.pick_values(x, 'C_w')
+        k_i = Layers.pick_values(x, 'k_i')
+        C_i = Layers.pick_values(x, 'C_i')
+        k_a = Layers.pick_values(x, 'k_a')
+        C_a = Layers.pick_values(x, 'C_a')
+        n = Layers.pick_values(x, 'n')
+        S_w = Layers.pick_values(x, 'S_w')
 
         # interval = Layers.interval
         # Tf = Layers.Tf
@@ -2127,12 +2245,21 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
                 C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
                 unfrw_u1 = n * phi
 
-            elif Layers.parameter_set == 'stefan':
+            elif Layers.parameter_set == 'stefan_thfr':
                 phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
 
                 k_eff = Layers.f_k_eff(k_fr, k_th, phi)
                 C_eff = Layers.f_C_eff(C_fr, C_th, phi)
                 unfrw_u1 = n * phi
+
+            elif Layers.parameter_set == 'stefan_swia':
+                phi = Layers.f_unfrw_fraction(u_1, Tf, interval)
+
+                k_eff = Layers.f_k_eff(k_s, k_w, k_i, k_a, n, phi, S_w)
+                C_eff = Layers.f_C_eff(C_s, C_w, C_i, C_a, n, phi, S_w)
+                unfrw_u1 = n * phi
+
+
 
         # pdb.set_trace()
 
@@ -2172,7 +2299,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
                 # Apparent heat capacity is the heat capacity + the latent heat effect
                 C_app = C_eff + C_add
 
-            elif Layers.parameter_set == 'stefan':
+            elif Layers.parameter_set in ['stefan_thfr', 'stefan_swia']:
                 C_app = np.where(np.logical_and(np.less(u, Tf), np.
                                                 greater_equal(u, Tf - interval)),
                                  C_eff + L * n / interval, C_eff)
@@ -2309,7 +2436,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
                         if not silent:
                             conv_crit.show()
 
-                elif Layers.parameter_set == 'stefan':
+                elif Layers.parameter_set in ['stefan_thfr', 'stefan_swia']:
                     phi_u = Layers.f_unfrw_fraction(u, Tf, interval)
                     unfrw_u = n * phi_u
 
@@ -2504,8 +2631,8 @@ class Visualizer_T(object):
         self.background = None
         self.title = None
         self.backend = matplotlib.get_backend()
-        if self.backend not in ['TkAgg', 'Qt4Agg', 'Qt5Agg']:
-            raise NotImplementedError('The matplotlib {0} backend is not supported. '
+        if self.backend not in ['TkAgg', 'QtAgg', 'Qt4Agg', 'Qt5Agg']:
+            raise NotImplementedError('The matplotlib {0} backend is not supported. '.format(self.backend) + 
                                       'Only Qt and TkAgg backends are supported.')
 
     def initialize(self, u, x, t, name='', figxy=None):
@@ -2857,7 +2984,7 @@ def test_LayeredModel():
 
     Layers.show(fig=100)
 
-    Layers = LayeredModel(type='stefan')
+    Layers = LayeredModel(type='stefan_thfr')
     Layers.add(Thickness=2, n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=-0.0001,
                soil_type='Test 1')
     Layers.add(Thickness=28, n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=-0.0001,
@@ -2914,7 +3041,7 @@ def test_FD_unfrw(scheme='theta', Nx=100, version='vectorized', fignum=99, theta
 
 def test_FD_stefan(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
     plt.ion()
-    Layers = LayeredModel(type='stefan', interval=1)
+    Layers = LayeredModel(type='stefan_thfr', interval=1)
 
     Layers.add(Thickness=30, n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0,
                soil_type='Test 1')
@@ -2959,7 +3086,7 @@ def test_FD_stefan(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, an
 
 def test_FD_stefan_grad(scheme='theta', Nx=100, fignum=99, theta=1., z_max=np.inf, animate=True):
     plt.ion()
-    Layers = LayeredModel(type='stefan', interval=1)
+    Layers = LayeredModel(type='stefan_thfr', interval=1)
 
     Layers.add(Thickness=30, n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0,
                soil_type='Test 1')

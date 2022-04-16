@@ -7,7 +7,7 @@
 This model script illustrates the use of the soilfreeze1d module for
 calculating the thermal regime in embankment constructions.
 The model first sets up and initializes a model of the natural soil.
-After the model has been run for a sufficient amount of time obtain
+After the model has been run for a sufficient amount of time to obtain
 stable thermal conditions, the construction of an embankment is 
 modelled by adding a five meter thick layer on top of the model.
  
@@ -42,7 +42,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan_thfr')
     Layers.add(Thickness=30,  n=0.30, C_th=2.6E6, C_fr=1.7E6, k_th=1.6, k_fr=3.0, interval=1.0, Tf=0.0, soil_type='Soil 1')    
     
     # Thickness:    Thickness of the layer [m]
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     #==========================================================================
  
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='stefan', surface_z=-5.)
+    Layers = soilfreeze1d.new_layered_model(type='stefan_thfr', surface_z=-5.)
     Layers.add(Thickness=5,  n=0.05, C_th=2.6E6, C_fr=1.7E6, k_th=1.6, k_fr=3.0, interval=1.0, Tf=0.0, soil_type='Top Soil')
     Layers.add(Thickness=30,  n=0.30, C_th=2.6E6, C_fr=1.7E6, k_th=1.6, k_fr=3.0, interval=1.0, Tf=0.0, soil_type='Soil 1')
     
@@ -194,7 +194,8 @@ if __name__ == '__main__':
                                              ub=surf_T, lb_type=3, grad=grad,
                                              user_action=user_action,
                                              outfile=outfile,
-                                             outint=outint)
+                                             outint=outint,
+                                             silent=True)
     
     # plot final result
     plot_solution.update(u, x, t)
