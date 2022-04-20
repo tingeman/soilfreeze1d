@@ -45,8 +45,8 @@ if __name__ == '__main__':
 
     # Define the model layers and properties
     Layers = soilfreeze1d.new_layered_model(type='unfrw_thfr')
-    Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
-    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=3,  n=0.6, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, a=0.19, b=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
+    Layers.add(Thickness=28,  n=0.3, C_th=2.5E6, C_fr=2.5E6, k_th=1.1, k_fr=1.1, a=0.05, b=0.4, Tf=-0.0001, soil_type='Fairbanks Silt')    
     
     
     # Thickness:    Thickness of the layer [m]
