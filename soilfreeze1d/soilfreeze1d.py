@@ -621,7 +621,16 @@ class UnfrozenWaterPowerFunction(object):
         """Calculation of the effective freezing point, T_star."""
         with np.errstate(divide='ignore'): 
             # Ignore division by zero in the following code
-            T_star = Tf - np.power((S_w / a), (-1 / b))
+            T_star = Tf - np.power((S_w / a), (-1 / b))                                                   
+
+            # NB THIS IS WRONG! S_w SHOULD NOT BE IN THIS FORMULA???
+            # AND SHOULD IT NOT BE:
+            
+            # T_star = np.power((1 / a), (-1 / b)) + Tf 
+            
+            # ????
+            
+            
         # if S_w is zero, a warning will be raised by the power function
         # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
         # instead of instantiating a new array of zeros to choose from, we just take the
@@ -1199,7 +1208,7 @@ class ConvCritUnfrw4(ConvergenceCriteria):
     unit = 'C'
 
     def calc_change(self, u_0, u_1, uw_0, uw_1, dt_fraction):
-        return np.abs(u_1 - u_0) / np.float(dt_fraction)
+        return np.abs(u_1 - u_0) / float(dt_fraction)
 
 
 def new_layered_model(type='', **kwargs):
