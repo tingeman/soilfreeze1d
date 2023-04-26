@@ -390,6 +390,122 @@ class FileStorage(object):
         return self.filename
 
 
+class FileReader(object):
+    """Class to read modelling results saved through filestorage.
+        
+    Initialization arguments:
+    filename        Path/name of file to read data from
+    """
+
+    def __init__(self, filename):
+        self.filename = filename
+        dat = np.genfromtxt(self.filename, delimiter=';', comments='#')
+        self.x = dat[0,2:]
+        self.t = dat[1:,0]
+        self.Tsurf = dat[1:,1]
+        self._u = dat[1:,1:]
+
+    def get(self, index=None, t=None):
+        if index is not None:
+            return dict(t=self.t[index], x=self.x, u=self._u[index, 1:])
+        elif t is not None:
+            index = self.t == t
+            return dict(t=self.t[index], x=self.x, u=self._u[index, 1:])
+        else:
+            raise ValueError('index or time in seconds must be specified.')        
+
+    def initialize(self):
+        """Creates the storage file and writes column headers.
+        If file exists and should be appended, do not write header!        
+        """
+
+        if self.append:
+            if os.path.exists(self.filename):
+                # The file already exists, so do nothing
+                return
+
+        if os.path.exists(os.path.dirname(os.path.abspath(self.filename))):
+            pass
+        else:
+            os.mkdir(os.path.dirname(os.path.abspath(self.filename)))
+
+        with open(self.filename, 'w') as f:
+            # Write the header row
+            f.write('{0:16s}'.format('Time[seconds]'))
+            f.write('; {0:12s}'.format('SurfTemp[C]'))
+            # Loop over all depths 
+            if self.nodes is not None:
+                for did in self.nodes:
+                    # write separator and temperature, if node is to be output
+                    f.write('; {0:+8.3f}'.format(self.depths[did]))
+            else:
+                for did in range(len(self.depths)):
+                    # write separator and temperature, if node is to be output
+                    f.write('; {0:+8.3f}'.format(self.depths[did]))
+
+            # write line termination
+            f.write('\n')
+        # file is automatically closed when using the "with .. as" construct
+
+    def add(self, t, ub, u):
+        """Adds the current time step, if t is a multiple of the
+        specified interval."""
+
+        t = np.round(t, self.decimals)  # round t to specified number of decimals
+        # print('FileStorage time: {0} ...'.format(t), end='')
+        if np.mod(t, self.interval) == 0:
+            # t is a multiple of interval...
+            self._buffer[self.count, 0] = t  # store time
+            self._buffer[self.count, 1] = ub  # store upper boundary value
+            if self.nodes is not None:
+                self._buffer[self.count, 2:] = u[self.nodes]  # store results 
+            else:
+                self._buffer[self.count, 2:] = u  # store results 
+            self.count += 1  # increment counter
+
+            if self.count == self.buffer_size:
+                # We have filled the buffer, now write to disk
+                self.flush()
+
+            # print('stored!')
+        else:
+            # t is not at a regular storage interval, so do nothing
+            pass
+
+    def add_comment(self, text):
+        """Adds a comment line to the file."""
+        self.flush()
+
+        with open(self.filename, 'a') as f:  # open the file
+            f.write('# {0}\n'.format(text))
+
+    def flush(self):
+        """Writes buffer to disk file."""
+        with open(self.filename, 'a') as f:  # open the file
+            # loop over all rows in buffer
+            for rid in range(self.count):
+                # Write the time step
+                f.write('{0:16.3f}'.format(self._buffer[rid, 0]))
+                f.write('; {0:+12.3f}'.format(self._buffer[rid, 1]))
+                # Loop over all the temperatures in the row
+                if self.nodes is None:
+                    for cid in range(len(self.depths)):
+                        # write separator and temperature
+                        f.write('; {0:+8.3f}'.format(self._buffer[rid, cid + 2]))
+                else:
+                    for cid in range(len(self.nodes)):
+                        # write separator and temperature
+                        f.write('; {0:+8.3f}'.format(self._buffer[rid, cid + 2]))
+                # write line termination
+                f.write('\n')
+        self.count = 0
+        # file is automatically closed when using the "with .. as" construct
+
+    def finalize(self):
+        return self.filename
+
+
+
 class MemoryStorage(object):
     """Class to handle storage of modelling results in memory.
     
@@ -617,25 +733,18 @@ class UnfrozenWaterPowerFunction(object):
     Tf             freezing point of the pore water [degC]
     Tstar          is the temperature above which all pore water is unfrozen
     """
-    def f_Tstar(self, a, b, Tf, S_w):
+    def f_Tstar(self, a, b, Tf):
         """Calculation of the effective freezing point, T_star."""
         with np.errstate(divide='ignore'): 
             # Ignore division by zero in the following code
-            T_star = Tf - np.power((S_w / a), (-1 / b))                                                   
+            # T_star = Tf - np.power((S_w / a), (-1 / b))
+            T_star = Tf - np.power((1 / a), (-1 / b))
 
-            # NB THIS IS WRONG! S_w SHOULD NOT BE IN THIS FORMULA???
-            # AND SHOULD IT NOT BE:
-            
-            # T_star = np.power((1 / a), (-1 / b)) + Tf 
-            
-            # ????
-            
-            
-        # if S_w is zero, a warning will be raised by the power function
-        # if S_w is zero there is no water, and thus Tf does not matter, we can return 0.
-        # instead of instantiating a new array of zeros to choose from, we just take the
-        # zero from S_w, to save time...
-        return np.where(S_w == 0., S_w, T_star)
+            # 1 = a|T*-Tf|^(-b)
+            # (1/a)^(-1/b) = |T*-Tf|
+            # +/- (1/a)^(-1/b) = T*-Tf
+            # T* = Tf - ((1/a)^(-1/b))
+        return T_star
 
     def f_unfrw_fraction(self, T, a, b, Tf, Tstar):
         """Calculates the unfrozen water fraction."""
@@ -812,7 +921,7 @@ class LayeredModel_unfrw_swi(LayeredModel, UnfrozenWaterPowerFunction, ThermalPa
             axes.append(plt.subplot2grid((nlayers, 2), (n, 1)))
 
             # unfrw = n*a*|T-Tf|**-b
-            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'], self[n]['S_w'])
+            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'])
             unfrw = self.f_unfrozen_water(T, self[n]['a'], self[n]['b'], self[n]['Tf'], Tstar, self[n]['n'], self[n]['S_w'])
 
             axes[-1].plot(T, unfrw, '-k')
@@ -895,7 +1004,7 @@ class LayeredModel_unfrw_swia(LayeredModel, UnfrozenWaterPowerFunction, ThermalP
             axes.append(plt.subplot2grid((nlayers, 2), (n, 1)))
 
             # unfrw = n*a*|T-Tf|**-b
-            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'], self[n]['S_w'])
+            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'])
             unfrw = self.f_unfrozen_water(T, self[n]['a'], self[n]['b'], self[n]['Tf'], Tstar, self[n]['n'], self[n]['S_w'])
 
             axes[-1].plot(T, unfrw, '-k')
@@ -976,7 +1085,7 @@ class LayeredModel_unfrw_thfr(LayeredModel, UnfrozenWaterPowerFunction, ThermalP
             axes.append(plt.subplot2grid((nlayers, 2), (n, 1)))
 
             # unfrw = n*a*|T-Tf|**-b
-            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'], self[n]['S_w'])
+            Tstar = self.f_Tstar(self[n]['a'], self[n]['b'], self[n]['Tf'])
             unfrw = self.f_unfrozen_water(T, self[n]['a'], self[n]['b'], self[n]['Tf'], Tstar, self[n]['n'], self[n]['S_w'])
 
             axes[-1].plot(T, unfrw, '-k')
@@ -1438,7 +1547,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'unfrw_swi':
         if not silent: print("Using unfrozen water parameters (swi)")
         k_s = Layers.pick_values(x, 'k_s')
@@ -1454,7 +1563,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'unfrw_swia':
         if not silent: print("Using unfrozen water parameters (swia)")
         k_s = Layers.pick_values(x, 'k_s')
@@ -1472,7 +1581,7 @@ def solver_theta(Layers, Nx, dt, t_end, t0=0., dt_min=360., theta=1.,
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'stefan_thfr':
         if not silent: print("Using stefan solution parameters (thfr)")
         k_th = Layers.pick_values(x, 'k_th')
@@ -2095,7 +2204,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'unfrw_swi':
         if not silent: print("Using unfrozen water parameters (swi)")
         k_s = Layers.pick_values(x, 'k_s')
@@ -2111,7 +2220,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'unfrw_swia':
         if not silent: print("Using unfrozen water parameters (swia)")
         k_s = Layers.pick_values(x, 'k_s')
@@ -2129,7 +2238,7 @@ def solver_theta_nug(Layers, x, dt, t_end, t0=0., dt_min=360., theta=1., sigma=0
         beta = Layers.pick_values(x, 'b')
 
         Tf = Layers.pick_values(x, 'Tf')
-        Tstar = Layers.f_Tstar(alpha, beta, Tf, S_w)
+        Tstar = Layers.f_Tstar(alpha, beta, Tf)
     elif Layers.parameter_set == 'stefan_thfr':
         if not silent: print("Using stefan solution parameters")
         k_th = Layers.pick_values(x, 'k_th')
