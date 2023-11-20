@@ -16,7 +16,14 @@ linearly over a specified temperature interval).
 
 The model is forced by a harmonic temperature variation at the upper boundary. 
 The lower boundary has a specified constant gradient of 0.02 C/m.
-Results will be written to the file model1_results.txt at a daily interval.
+Results will be written to the file model3_nug_results.txt at a daily interval.
+
+The difference in this model compared with model3.py is that here we use a 
+non-uniform grid to reduce the number of grid-points and thus speed up the
+calculations.
+
+NB: It turns out the non-uniform-grid solution is not faster, at least not in 
+this particular case!
 
 ===============================================================================
 
@@ -86,12 +93,27 @@ if __name__ == '__main__':
     z_max = 30      # Maximum plot depth on the z-axis    
     
     # Set up result output 
-    outfile = 'model3_results.txt' # Name of the result file
+    outfile = 'model3_nug_results.txt' # Name of the result file
     outint = 1*days  # The interval at which results will be written to the file    
     
+    # Define model domain properties
+
+    # We use a minimum node spacing of 1 cm, and increase the node spacing by
+    # 10% (factor of 1.1) for each deeper node from the ground surface and down.
+
+    dx0 = 0.01
+    dxf = 1.1
     
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
-    dx = x[1] - x[0]
+    Nx = 0
+    xtmp = [0, 1]
+    xsum = dx0
+    while xsum<(Layers.z_max-Layers.surface_z):
+        Nx += 1
+        xtmp.append(dxf**Nx)
+        xsum += xtmp[-1]*dx0
+    
+    x = np.cumsum(xtmp)*dx0+Layers.surface_z
+    x[-1] = Layers.z_max
     
     # Plot initial condition
     plot_solution = soilfreeze1d.Visualizer_T(Layers, Tmin=Tmin, Tmax=Tmax, z_max=z_max, fig=fignum)
@@ -113,13 +135,14 @@ if __name__ == '__main__':
         user_action = None
     
     # Call Finite Difference engine    
-    u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, t0=t0,
-                                             Tinit=initialTemperature, 
-                                             ub=surf_T, lb_type=3, grad=grad,
-                                             user_action=user_action,
-                                             outfile=outfile,
-                                             outint=outint,
-                                             silent=True)
+    u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
+                                                 t0=t0,
+                                                 Tinit=initialTemperature, 
+                                                 ub=surf_T, lb_type=3, grad=grad,
+                                                 user_action=user_action,
+                                                 outfile=outfile,
+                                                 outint=outint,
+                                                 silent=True)
     
     # plot final result
     plot_solution.update(u, x, t)
@@ -139,6 +162,7 @@ if __name__ == '__main__':
     #==========================================================================
  
     # Define the model layers and properties
+
     Layers = soilfreeze1d.new_layered_model(type='stefan_thfr', surface_z=-5.)
     Layers.add(Thickness=5,  n=0.05, C_th=2.6E6, C_fr=1.7E6, k_th=1.6, k_fr=3.0, interval=1.0, Tf=0.0, soil_type='Top Soil')
     Layers.add(Thickness=30,  n=0.30, C_th=2.6E6, C_fr=1.7E6, k_th=1.6, k_fr=3.0, interval=1.0, Tf=0.0, soil_type='Soil 1')
@@ -150,22 +174,45 @@ if __name__ == '__main__':
     # Define initial condition (temperatures in domain)
     initialTemperature = soilfreeze1d.DistanceInterpolator(depths=x, temperatures=u)
     
-    # The arrays x and u contain the final model temperatures from the intial simulation.
-    # Temperatures are present for depths from 0 to -30 m.
-    # As we now have extended the model domain upward by 5 m (to x = -5 m) the model 
+    # The arrays x and u contain grid node locations and the final model temperatures 
+    # from the intial simulation. Temperatures are present for depths from 0 to -30 m.
+    
+    # The distance interpolator is a class to make linear interpolation of temperature profiles.
+    # We use it in this case to transfer the final model temperatures from the initial simulation 
+    # to the new node locations that we setup for the second run with added embankment structure.
+
+    # The class instance will be passed to the solver, which will call it with the new grid node 
+    # locations and receive as output the initial temperatures interpolated on the new grid.
+
+    # As we now have extended the model domain upward by 5 m (to x = -5 m) the interpolator class
     # will automatically use the upper-most temperature specified (in this case at x = 0 m)
     # for any nodes above that (from 0 to -5 m).
-    
-    
-    # update the grid points
-    x = np.linspace(Layers.surface_z, Layers.z_max, Nx)   # mesh points in space
-    dx = x[1] - x[0]
-    # In this second part of the model we have used the same number of node points
-    # as in the original model. As the model domain is larger, the nodes will be 
-    # less densely spaced.
-    # We could have also chosen a larger Nx value proportionally to the 
-    # expansion of the domain... to obtain the same node distance.
 
+
+    # Now we redefine grid node locations for the new model:
+
+    # Again we use a minimum node spacing of 1 cm, and increase the node spacing by
+    # 10% (factor of 1.1) for each deeper node.
+    # This time we start from the top of the embankment - This is automatically handled
+    # since we specified the surface of the layered model now is at -5 m elevation
+    # (5 m above the previous natural soil surface)
+
+    dx0 = 0.01
+    dxf = 1.1
+    
+    Nx = 0
+    xtmp = [0, 1]
+    xsum = dx0
+    while xsum<(Layers.z_max-Layers.surface_z):
+        Nx += 1
+        xtmp.append(dxf**Nx)
+        xsum += xtmp[-1]*dx0
+    
+    x = np.cumsum(xtmp)*dx0+Layers.surface_z
+    x[-1] = Layers.z_max
+
+
+    # set up other parameters:4
 
     animate = True  # Show animation of the model results during calculations
     dt = 0.5*days   # The maximum calculation time step
@@ -190,13 +237,14 @@ if __name__ == '__main__':
     time.sleep(5)
     
     # Call Finite Difference engine    
-    u, x, t, cpu = soilfreeze1d.solver_theta(Layers, Nx, dt, T, t0=t0,
-                                             Tinit=initialTemperature, 
-                                             ub=surf_T, lb_type=3, grad=grad,
-                                             user_action=user_action,
-                                             outfile=outfile,
-                                             outint=outint,
-                                             silent=True)
+    u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T,
+                                                 t0=t0,
+                                                 Tinit=initialTemperature, 
+                                                 ub=surf_T, lb_type=3, grad=grad,
+                                                 user_action=user_action,
+                                                 outfile=outfile,
+                                                 outint=outint,
+                                                 silent=True)
     
     # plot final result
     plot_solution.update(u, x, t)

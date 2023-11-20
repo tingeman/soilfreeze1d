@@ -39,8 +39,8 @@ if __name__ == '__main__':
 
     # Define the model layers and properties
     Layers = soilfreeze1d.new_layered_model(type='unfrw_swi')
-    Layers.add(Thickness= 3,  n=0.6, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.19, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
-    Layers.add(Thickness=28,  n=0.3, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, alpha=0.05, beta=0.4, Tf=-0.0001, soil_type='Quarz grains')    
+    Layers.add(Thickness= 3,  n=0.6, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, a=0.19, b=0.4, Tf=-0.0001, soil_type='Quarz grains')    
+    Layers.add(Thickness=28,  n=0.3, C_s=2.65E6, C_w=4.1814E6, C_i=1.938E6, k_s=7.0, k_w=0.563, k_i=2.2, a=0.05, b=0.4, Tf=-0.0001, soil_type='Quarz grains')    
     
     
     # Thickness:    Thickness of the layer [m]

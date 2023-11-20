@@ -11,9 +11,12 @@ The model domain has an initial termperature of -2C at all nodes, and the
 model is forced by a harmonic temperature variation at the upper boundary. 
 The lower boundary has a specified constant gradient of 0.08333 C/m.
 Results will be written to the file model1_results.txt at a daily interval.
-This verstion uses the non-uniform grid code, with a node spacing increase
-factor of 1.1
 
+This verstion compares the use of the non-uniform grid solver with the uniform
+grid solver.
+
+For the non-uniform grid solver the node spacing increase is set to a factor 
+of 1.1, where as the uniform grid solver uses 100 equidistantly spaced nodes.
 ===============================================================================
 
 """
@@ -53,7 +56,7 @@ if __name__ == '__main__':
     # from IPython console, or using "python.exe model1.py" from command prompt.
 
     # Define the model layers and properties
-    Layers = soilfreeze1d.new_layered_model(type='stefan')
+    Layers = soilfreeze1d.new_layered_model(type='stefan_thfr')
     Layers.add(Thickness=30,  n=0.02, C_th=2.5E6, C_fr=2.5E6, k_th=1.8, k_fr=1.8, interval=1.0, Tf=0.0, soil_type='Soil 1')    
 
     # Thickness:    Thickness of the layer [m]
@@ -68,10 +71,11 @@ if __name__ == '__main__':
     
     
     # Define model domain properties
-    dx0 = 0.05
-    dxf = 1.1
+    dx0 = 0.05     # the distance between the first two nodes (surface and node below)
+    dxf = 1.1      # factor to increase with depth the distance between nodes
     
-    Nx = 0
+    # Code to generate sequence of nodes with increasing internodal spacing
+    Nx = 0               
     xtmp = [0, 1]
     xsum = dx0
     while xsum<(Layers.z_max-Layers.surface_z):
@@ -79,37 +83,30 @@ if __name__ == '__main__':
         xtmp.append(dxf**Nx)
         xsum += xtmp[-1]*dx0
     
+    # Now compile all nodes into one array, x
     x = np.cumsum(xtmp)*dx0+Layers.surface_z
-    x[-1] = Layers.z_max
-    #x[-2] = (x[-3]+x[-1])/2.
-    #x = x[:-1]
+    x[-1] = Layers.z_max   # set last node to defined max depth (irrespective of calculated depth)
     
-    x = np.unique(np.round(x,2))
+    x = np.unique(np.round(x,2))  # make sure there are no duplicate node locations.
     
     dt = 1*hours   # The calculation time step
     T = 10*365*days    # The total calculation period
 
     # Define the forcing upper boundary temperature
-    surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)    
-
-    # Example of a function that will give a constant
-    # upper boundary temperature
-    
-    #def surf_T(t):
-    #    return -2.
+    surf_T = soilfreeze1d.HarmonicTemperature(maat=-2, amplitude=8, lag=14*days)
     
     # Define the geothermal gradient (lower boundary)    
     grad=0.08333     # [K/m]
     
     # Set up plotting
-    fignum  = 98    # Plot results in figure number 99    
+    fignum  = 98     # Plot results in figure number 99    
     animate = False  # Plot result of each model time step    
-                    # If set to False, only first and last
-                    # time step will be plotted.
+                     # If set to False, only first and last
+                     # time step will be plotted.
     
-    Tmin = -11      # The minimum value on the temperature axis
-    Tmax = +9      # The maximum value on the temperature axis
-    z_max = 30      # Maximum plot depth on the z-axis    
+    Tmin = -11       # The minimum value on the temperature axis
+    Tmax = +9        # The maximum value on the temperature axis
+    z_max = 30       # Maximum plot depth on the z-axis    
     
     # Set up result output 
     outfile = 'model1_nug_results.txt' # Name of the result file
@@ -127,13 +124,9 @@ if __name__ == '__main__':
     
     # Call Finite Difference engine    
     
-    # # upgrade warnings to errors
-    # with warnings.catch_warnings():
-    #     warnings.simplefilter('error')
-    
     u, x, t, cpu = soilfreeze1d.solver_theta_nug(Layers, x, dt, T, 
                                                  Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
+                                                 ub=surf_T, lb_type=3, grad=grad,
                                                  user_action=user_action,
                                                  outfile=outfile,
                                                  outint=outint,
@@ -147,6 +140,8 @@ if __name__ == '__main__':
     
     
     
+    # NOW solve the same problem using the uniform grid solver with 
+    # 100 equidistant points.
     
     Nx_ug = 100
     
@@ -156,7 +151,7 @@ if __name__ == '__main__':
     # Call Finite Difference engine    
     u_ug, x_ug, t_ug, cpu_ug = soilfreeze1d.solver_theta(Layers, Nx_ug, dt, T, 
                                                  Tinit=initialTemperature, 
-                                                 ub=surf_T, lb_type=2, grad=grad,
+                                                 ub=surf_T, lb_type=3, grad=grad,
                                                  user_action=user_action,
                                                  outfile=outfile,
                                                  outint=outint,
